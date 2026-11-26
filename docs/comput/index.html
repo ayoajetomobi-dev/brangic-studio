@@ -130,6 +130,20 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   background-image: linear-gradient(45deg, var(--board-2) 25%, transparent 25%, transparent 75%, var(--board-2) 75%), linear-gradient(45deg, var(--board-2) 25%, transparent 25%, transparent 75%, var(--board-2) 75%);
   background-size: 16px 16px; background-position: 0 0, 8px 8px; outline: 1px solid var(--rule) }
 .board canvas, .board img { display: block }
+.board #gl, .board #ov { position: absolute; left: 0; top: 0; pointer-events: none }
+.board #gl { opacity: 0; transition: opacity .18s ease-out }
+.board #gl.on { opacity: 1; transition: none }
+@media (prefers-reduced-motion: reduce) { .board #gl { transition: none } }
+#ov .h { fill: var(--board); stroke: #121312; stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: all; cursor: pointer }
+#ov .h.on { fill: #121312 }
+#ov .ax { stroke: #121312; stroke-width: 1.25; vector-effect: non-scaling-stroke; opacity: .45 }
+#ov .ax.on { opacity: 1; stroke-width: 2 }
+#ov .halo { stroke: #f4f5f2; stroke-width: 4; vector-effect: non-scaling-stroke; opacity: .9; fill: none }
+#ov .ring { fill: none; stroke: #121312; stroke-width: 1.25; vector-effect: non-scaling-stroke; stroke-dasharray: 5 4 }
+#ov .ring.solid { stroke-dasharray: none }
+#ov text { font: 600 10px var(--font); fill: #121312; paint-order: stroke; stroke: #f4f5f2; stroke-width: 3px; letter-spacing: .06em }
+.view.scene { touch-action: none; cursor: grab } .view.scene.grabbing { cursor: grabbing }
+.kbd { font-size: 11px; color: var(--mute) }
 .board .tag { position: absolute; left: 0; top: -18px; font-size: 10px; letter-spacing: .08em; color: var(--mute); white-space: nowrap }
 .view.one .board { margin: auto }
 
@@ -333,9 +347,15 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         <div class="seg" id="fpsSeg" role="group" aria-label="Frames per second" style="min-width:110px"><button data-v="24" aria-pressed="true">24 fps</button><button data-v="30" aria-pressed="false">30</button></div>
         <button class="btn sm" id="motGo">Render</button>
       </div>
+      <div class="rsp-ctl" id="sceneBar" hidden>
+        <div class="seg" id="toolSeg" role="group" aria-label="Tool"><button data-v="move" aria-pressed="true" title="Move (G)">Move</button><button data-v="rotate" aria-pressed="false" title="Rotate (R)">Rotate</button><button data-v="scale" aria-pressed="false" title="Scale (S)">Scale</button></div>
+        <div class="seg" id="axisSeg" role="group" aria-label="Axis" style="min-width:150px"><button data-v="free" aria-pressed="true" title="Free (Esc)">Free</button><button data-v="x" aria-pressed="false" title="X axis (X)">X</button><button data-v="y" aria-pressed="false" title="Y axis (Y)">Y</button><button data-v="z" aria-pressed="false" title="Z axis (Z)">Z</button></div>
+        <button class="btn ghost sm" id="resetView" title="Reset view (F)">Reset view</button>
+        <span class="kbd" id="navHint">Drag a shape to edit it. Drag empty space to orbit, Shift or right-drag to pan, scroll or pinch to zoom.</span>
+      </div>
       <div class="bar"><i id="bar"></i></div>
       <div class="view" id="view">
-        <div class="board" id="board"><span class="tag lab" id="boardTag"></span><canvas id="cv"></canvas><img id="rspImg" alt="Responsive sphere logo preview" hidden></div>
+        <div class="board" id="board"><span class="tag lab" id="boardTag"></span><canvas id="cv"></canvas><canvas id="gl"></canvas><svg id="ov" aria-hidden="true"></svg><img id="rspImg" alt="Responsive sphere logo preview" hidden></div>
       </div>
       <div class="stage-foot">
         <div class="reads" id="reads"></div>
@@ -362,7 +382,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script>
+<script id="engine-src">
 /* Comput engine — port of sphere_logo_dense.py with a size-aware scaling law.
  *
  * The original script draws a fixed number of marks at a fixed share of the
@@ -1158,18 +1178,61 @@ const Comput = (() => {
     const U = [Rt[1] * F[2] - Rt[2] * F[1], Rt[2] * F[0] - Rt[0] * F[2], Rt[0] * F[1] - Rt[1] * F[0]];
     return { F, R: Rt, U };
   }
+  // camera framing on top of orbit: zoom (1 = the frame is 2 units tall) and pan (camera-plane units)
+  const framing = (scene) => ({ zoom: Math.min(8, Math.max(0.2, scene.zoom || 1)), panX: scene.panX || 0, panY: scene.panY || 0 });
+  // where a world point lands on the artboard (px)
+  function projectPoint(scene, x, y, z, W, H) {
+    const { R, U, F } = camera(scene), { zoom, panX, panY } = framing(scene), aspect = W / H;
+    const u = x * R[0] + y * R[1] + z * R[2], v = x * U[0] + y * U[1] + z * U[2];
+    return { px: (((u - panX) * zoom + aspect) / (2 * aspect)) * W, py: ((1 - (v - panY) * zoom) / 2) * H, R, U, F, zoom };
+  }
   // where a shape's centre lands on the artboard (px), and how big it looks
   function projectShape(scene, sh, W, H) {
-    const { R, U } = camera(scene), aspect = W / H;
-    const u = sh.x * R[0] + sh.y * R[1] + sh.z * R[2], v = sh.x * U[0] + sh.y * U[1] + sh.z * U[2];
-    return { px: ((u + aspect) / (2 * aspect)) * W, py: ((1 - v) / 2) * H, r: (sh.size / 2) * H, R, U };
+    const q = projectPoint(scene, sh.x, sh.y, sh.z, W, H);
+    return { ...q, r: (sh.size / 2) * H * q.zoom };
   }
+  // local half-extents of each shape before scaling (used for the ground height)
+  function shapeExtent(type, q) {
+    switch (type) {
+      case 'cube': return [0.8, 0.8 * (0.25 + 1.5 * q), 0.8];
+      case 'cylinder': return [0.8, 0.8 * (0.2 + 1.6 * q), 0.8];
+      case 'ring': { const r = 0.08 + 0.4 * q; return [0.8 + r, r, 0.8 + r]; }
+      case 'capsule': return [0.42, 1.4 * q + 0.42, 0.42];
+      default: return [1, 1, 1];
+    }
+  }
+  // the ground sits under the lowest point of any shape
+  function groundY(scene) {
+    let m = Infinity;
+    for (const sh of scene.shapes || []) {
+      let ey;
+      if (sh.type === 'sphere') ey = 1;
+      else { const e = shapeExtent(sh.type, sh.q ?? 0.5), M = rotMat(sh.rx || 0, sh.ry || 0, sh.rz || 0); ey = Math.abs(M[3]) * e[0] + Math.abs(M[4]) * e[1] + Math.abs(M[5]) * e[2]; }
+      m = Math.min(m, sh.y - ey * sh.size);
+    }
+    return m;
+  }
+  // rotation matrix (Z·Y·X, row-major) back to the X, Y, Z angles in degrees
+  function matToEuler(M) {
+    const b = Math.asin(Math.max(-1, Math.min(1, -M[6])));
+    let a, c;
+    if (Math.abs(M[6]) < 0.9999) { a = Math.atan2(M[7], M[8]); c = Math.atan2(M[3], M[0]); }
+    else { a = Math.atan2(-M[5], M[4]); c = 0; }
+    const d = 180 / Math.PI;
+    return { rx: a * d, ry: b * d, rz: c * d };
+  }
+  // rotation about any axis (Rodrigues), row-major
+  function axisMat(ax, ay, az, deg) {
+    const l = Math.hypot(ax, ay, az) || 1, x = ax / l, y = ay / l, z = az / l, t = (deg * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t), C = 1 - c;
+    return [c + x * x * C, x * y * C - z * s, x * z * C + y * s, y * x * C + z * s, c + y * y * C, y * z * C - x * s, z * x * C - y * s, z * y * C + x * s, c + z * z * C];
+  }
+  function matMul(A, B) { const o = []; for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) o.push(A[3 * i] * B[j] + A[3 * i + 1] * B[3 + j] + A[3 * i + 2] * B[6 + j]); return o; }
   const aspectOf = (a) => ({ '1:1': 1, '4:5': 0.8, '3:2': 1.5, '16:9': 16 / 9 }[a] || 1);
   const sceneKey = (scene, p, w, h) => 'scene:' + w + 'x' + h + ':' + JSON.stringify(scene) + ':' + [p.iLightX, p.iLightY].join(',');
 
   async function renderScene(scene, p, w, h, opt = {}) {
     const maybeYield = yielder(opt, 0, 1);
-    const n = w * h, aspect = w / h;
+    const n = w * h, aspect = w / h, { zoom, panX, panY } = framing(scene);
     const lum = new Float32Array(n), alpha = new Float32Array(n), kind = new Uint8Array(n), edgeSrc = new Float32Array(n);
     const NX = new Float32Array(n), NY = new Float32Array(n), NZ = new Float32Array(n), SH = new Float32Array(n), AO = new Float32Array(n).fill(1);
     const id = sceneKey(scene, p, w, h);
@@ -1211,9 +1274,9 @@ const Comput = (() => {
     let minY = Infinity;
     // pass 1: the shapes
     for (let j = 0; j < h; j++) {
-      const v = 1 - ((j + 0.5) / h) * 2;
+      const v = (1 - ((j + 0.5) / h) * 2) / zoom + panY;
       for (let i = 0; i < w; i++) {
-        const u = (((i + 0.5) / w) * 2 - 1) * aspect, q = j * w + i;
+        const u = ((((i + 0.5) / w) * 2 - 1) * aspect) / zoom + panX, q = j * w + i;
         const ox = u * R[0] + v * U[0] - F[0] * D, oy = u * R[1] + v * U[1] - F[1] * D, oz = u * R[2] + v * U[2] - F[2] * D;
         // ray vs bounding sphere
         const cx = ox - bx, cy = oy - by, cz = oz - bz, b = cx * F[0] + cy * F[1] + cz * F[2], c = cx * cx + cy * cy + cz * cz - br * br, disc = b * b - c;
@@ -1242,13 +1305,13 @@ const Comput = (() => {
       if ((j & 7) === 0) await maybeYield(0.8 * (j / h));
     }
     // pass 2: shadows on an invisible ground just under the lowest shape
-    const gs = scene.ground ?? 0.6, gy0 = minY - 0.004;
+    const gs = scene.ground ?? 0.6, gy0 = groundY(scene) - 0.004;
     if (gs > 0 && minY < Infinity && F[1] < -1e-3) {
       for (let j = 0; j < h; j++) {
-        const v = 1 - ((j + 0.5) / h) * 2;
+        const v = (1 - ((j + 0.5) / h) * 2) / zoom + panY;
         for (let i = 0; i < w; i++) {
           const q = j * w + i; if (kind[q]) continue;
-          const u = (((i + 0.5) / w) * 2 - 1) * aspect;
+          const u = ((((i + 0.5) / w) * 2 - 1) * aspect) / zoom + panX;
           const ox = u * R[0] + v * U[0] - F[0] * D, oy = u * R[1] + v * U[1] - F[1] * D, oz = u * R[2] + v * U[2] - F[2] * D;
           const t = (gy0 - oy) / F[1]; if (t <= 0) continue;
           const x = ox + F[0] * t, z = oz + F[2] * t;
@@ -1262,6 +1325,32 @@ const Comput = (() => {
       }
     }
     return img;
+  }
+
+  // which shape is under an artboard point: cast one ray, take the first surface it meets,
+  // or the shape it passed closest to if it misses by less than tolPx
+  function pickShape(scene, W, H, px, py, tolPx = 8) {
+    const list = (scene.shapes || []).map((sh) => ({ f: shapeSdf(sh.type, sh.q ?? 0.5), M: rotMat(sh.rx || 0, sh.ry || 0, sh.rz || 0), sh }));
+    if (!list.length) return -1;
+    const { F, R, U } = camera(scene), { zoom, panX, panY } = framing(scene), aspect = W / H;
+    const u = (((px / W) * 2 - 1) * aspect) / zoom + panX, v = (1 - (py / H) * 2) / zoom + panY;
+    const o = [u * R[0] + v * U[0] - F[0] * 6, u * R[1] + v * U[1] - F[1] * 6, u * R[2] + v * U[2] - F[2] * 6];
+    const tol = (tolPx * 2) / (H * zoom), near = new Array(list.length).fill(Infinity);
+    let t = 0;
+    for (let it = 0; it < 200 && t < 14; it++) {
+      const x = o[0] + F[0] * t, y = o[1] + F[1] * t, z = o[2] + F[2] * t;
+      let d = Infinity, bi = -1;
+      list.forEach((L, i) => {
+        const dx = x - L.sh.x, dy = y - L.sh.y, dz = z - L.sh.z, M = L.M, sc = L.sh.size;
+        const e = L.f((M[0] * dx + M[3] * dy + M[6] * dz) / sc, (M[1] * dx + M[4] * dy + M[7] * dz) / sc, (M[2] * dx + M[5] * dy + M[8] * dz) / sc) * sc;
+        if (e < near[i]) near[i] = e;
+        if (e < d) { d = e; bi = i; }
+      });
+      if (d < 0.002) return bi;
+      t += Math.max(0.002, d * 0.9);
+    }
+    let best = -1, bd = tol; near.forEach((e, i) => { if (e < bd) { bd = e; best = i; } });
+    return best;
   }
 
   // ready-made scenes to start from
@@ -1373,9 +1462,321 @@ const Comput = (() => {
       `<style>${css}</style>` + bgRect(p, V, VH) + groups + `</svg>`;
   }
 
-  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
+  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, coverage, pickShape, camera, framing, projectPoint, groundY, rotMat, matToEuler, axisMat, matMul, logoDensity, shapeExtent, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
 })();
 if (typeof module !== 'undefined') module.exports = Comput;
+
+</script>
+<script type="text/plain" id="worker-src">
+/* Comput worker: runs the engine off the page so the interface never waits on it.
+ * Loaded as a blob: the engine source followed by this file.
+ * Messages in:  {type:'image', image}            keep a picture for later jobs
+ *               {type:'cancelBelow', g}           drop interactive jobs older than group g
+ *               {type:'gen', id, g, keep, p, size, opt, src}
+ *                 src = null (logo) | {kind:'image', id} | {kind:'scene', scene, w, h}
+ * Messages out: {type:'progress'|'done'|'cancelled'|'error', id, ...}
+ */
+(() => {
+  const CACHE = new Map(), IMAGES = new Map(), SCENES = new Map();
+  let below = 0;
+  self.onmessage = async (e) => {
+    const m = e.data;
+    if (m.type === 'image') { IMAGES.set(m.image.id, m.image); while (IMAGES.size > 8) IMAGES.delete(IMAGES.keys().next().value); return; }
+    if (m.type === 'cancelBelow') { below = Math.max(below, m.g); return; }
+    if (m.type !== 'gen') return;
+    const { id, g, keep } = m, cancelled = () => !keep && g < below;
+    try {
+      let image = null;
+      if (m.src && m.src.kind === 'scene') {
+        const key = JSON.stringify(m.src.scene) + '|' + [m.p.iLightX, m.p.iLightY, m.src.w, m.src.h].join(',');
+        image = SCENES.get(key);
+        if (!image) {
+          image = await Comput.renderScene(m.src.scene, m.p, m.src.w, m.src.h, { cancelled });
+          SCENES.set(key, image); while (SCENES.size > 4) SCENES.delete(SCENES.keys().next().value);
+        }
+      } else if (m.src && m.src.kind === 'image') {
+        image = IMAGES.get(m.src.id);
+        if (!image) throw new Error('image-missing');
+      }
+      const motion = m.opt && (m.opt.init || m.opt.stable || m.opt.fixedN);
+      const r = await Comput.generate(m.p, m.size, {
+        ...m.opt, image, cancelled, cache: motion ? undefined : CACHE,
+        onProgress: (f) => self.postMessage({ type: 'progress', id, f }),
+      });
+      self.postMessage({ type: 'done', id, r });
+    } catch (err) {
+      self.postMessage({ type: err instanceof Comput.Cancelled ? 'cancelled' : 'error', id, message: String((err && err.message) || err) });
+    }
+  };
+})();
+
+</script>
+<script>
+/* Comput GPU preview for scenes.
+ *
+ * While you drag, orbit or rotate, the exact engine (ray-march on the CPU, then Lloyd
+ * relaxation of every mark) is too slow to keep up. This draws the same picture on the GPU
+ * every frame:
+ *   pass 1: ray-march the same shapes, shadows and contact shadows, and turn them into the
+ *           logo's mark density (same light, shadow and rim model) plus the surface direction;
+ *   pass 2: a fixed set of progressive blue-noise points, each shown when the density there
+ *           is above its rank, drawn as circles (0) and pills (1) with the same size, length,
+ *           direction and foreshortening as the exact render.
+ * The exact render replaces it a moment after you stop.
+ */
+const ComputGPU = (() => {
+  const MAX = 12, TILE_N = 4096;
+
+  const VS_FULL = `#version 300 es
+in vec2 aP; void main(){ gl_Position = vec4(aP, 0., 1.); }`;
+
+  const FS_DENSITY = `#version 300 es
+precision highp float;
+uniform vec2 uRes; uniform float uAspect, uZoom; uniform vec2 uPan;
+uniform vec3 uF, uR, uU, uLW, uLC;
+uniform int uN; uniform vec4 uPS[${MAX}]; uniform vec4 uPT[${MAX}]; uniform mat3 uM[${MAX}];
+uniform float uMelt, uGround, uGY, uSP, uRP, uInvert, uEdge; uniform vec4 uBS;
+out vec4 o;
+float sdShape(int t, float q, vec3 p){
+  if (t == 1) { vec3 b = vec3(0.8, 0.8 * (0.25 + 1.5 * q), 0.8); float rr = 0.07; vec3 a = abs(p) - b + rr;
+    return length(max(a, 0.)) + min(max(a.x, max(a.y, a.z)), 0.) - rr; }
+  if (t == 2) { float r = 0.8, hh = 0.8 * (0.2 + 1.6 * q), rr = 0.05; vec2 d = vec2(length(p.xz) - r + rr, abs(p.y) - hh + rr);
+    return min(max(d.x, d.y), 0.) + length(max(d, 0.)) - rr; }
+  if (t == 3) { float R = 0.8, r = 0.08 + 0.4 * q; return length(vec2(length(p.xz) - R, p.y)) - r; }
+  if (t == 4) { float hh = 1.4 * q; vec3 c = p; c.y -= clamp(c.y, -hh, hh); return length(c) - 0.42; }
+  return length(p) - 1.;
+}
+float map(vec3 p){
+  float d = 1e9, k = max(1e-4, uMelt);
+  for (int i = 0; i < ${MAX}; i++) {
+    if (i >= uN) break;
+    vec3 l = (uM[i] * (p - uPS[i].xyz)) / uPS[i].w;
+    float e = sdShape(int(uPT[i].x), uPT[i].y, l) * uPS[i].w;
+    if (uMelt <= 1e-4) d = min(d, e);
+    else { float h = clamp(0.5 + 0.5 * (e - d) / k, 0., 1.); d = mix(e, d, h) - k * h * (1. - h); }
+  }
+  return d;
+}
+float softShadow(vec3 p){
+  float res = 1., t = 0.02;
+  for (int i = 0; i < 40; i++) {
+    if (t > 5.) break;
+    float d = map(p + uLW * t);
+    if (d < 0.0015) return 0.;
+    res = min(res, 10. * d / t); t += clamp(d, 0.015, 0.25);
+  }
+  return clamp(res, 0., 1.);
+}
+void main(){
+  float i = gl_FragCoord.x, j = uRes.y - gl_FragCoord.y;
+  float u = (i / uRes.x * 2. - 1.) * uAspect / uZoom + uPan.x;
+  float v = (1. - j / uRes.y * 2.) / uZoom + uPan.y;
+  vec3 ro = u * uR + v * uU - uF * 6.;
+  vec3 c = ro - uBS.xyz; float b = dot(c, uF), cc = dot(c, c) - uBS.w * uBS.w, disc = b * b - cc;
+  if (disc >= 0.) {
+    float t = max(0., -b - sqrt(disc)), tEnd = -b + sqrt(disc); bool hit = false;
+    for (int it = 0; it < 96; it++) {
+      if (t >= tEnd) break;
+      float d = map(ro + uF * t);
+      if (d < 0.0008) { hit = true; break; }
+      t += d * 0.9;
+    }
+    if (hit) {
+      vec3 x = ro + uF * t; float e = 0.0015;
+      vec3 n = normalize(vec3(map(x + vec3(e,0,0)) - map(x - vec3(e,0,0)), map(x + vec3(0,e,0)) - map(x - vec3(0,e,0)), map(x + vec3(0,0,e)) - map(x - vec3(0,0,e))));
+      vec3 nc = vec3(dot(n, uR), dot(n, uU), -dot(n, uF));
+      float sh = 1. - softShadow(x + n * 0.004);
+      float occ = 0.; for (int a = 1; a <= 4; a++) { float hh = 0.04 * float(a); occ += (hh - map(x + n * hh)) / pow(2., float(a - 1)); }
+      float ao = clamp(1. - 2.2 * occ, 0.35, 1.);
+      float li = clamp(dot(nc, uLC), 0., 1.) * (1. - sh) * ao;
+      float s2 = 1. - li, rim = 1. - max(0., nc.z), LT = 1. + uSP + uRP;
+      float tl = (1. + uSP * s2 * s2 + uRP * pow(rim, 2.5)) / LT;
+      if (uInvert > 0.5) tl = 1. - tl + 1. / LT;
+      tl = min(1., tl + uEdge * 0.55 * pow(rim, 6.) * (1. - tl * 0.5));
+      o = vec4(tl, nc.x * 0.5 + 0.5, nc.y * 0.5 + 0.5, max(0., nc.z));
+      return;
+    }
+  }
+  if (uGround > 0. && uF.y < -1e-3) {
+    float t = (uGY - ro.y) / uF.y;
+    if (t > 0.) {
+      vec3 g = ro + uF * t;
+      float fade = max(0., 1. - length(g.xz - uBS.xz) / (uBS.w * 1.5));
+      if (fade > 0.) { float sh = (1. - softShadow(vec3(g.x, uGY + 0.002, g.z))) * fade * fade; o = vec4(sh * uGround * 0.9, 0.5, 0.5, 0.); return; }
+    }
+  }
+  o = vec4(0., 0.5, 0.5, 0.);
+}`;
+
+  const VS_MARKS = `#version 300 es
+precision highp float; precision highp int;
+uniform highp sampler2D uTile; uniform int uTileN, uTilesX;
+uniform vec2 uOut; uniform float uTilePx, uPx;
+uniform sampler2D uDen;
+uniform float uD, uLW, uLen, uShare, uWig, uFore; uniform int uDir;
+in vec2 aC;
+out vec2 vP; out vec2 vA; out vec2 vB; flat out float vR;
+void main(){
+  int ti = gl_InstanceID % uTileN, tile = gl_InstanceID / uTileN;
+  vec4 t = texelFetch(uTile, ivec2(ti, 0), 0);
+  vec2 pos = (vec2(float(tile % uTilesX), float(tile / uTilesX)) + t.xy) * uTilePx;
+  vec4 d = texture(uDen, vec2(pos.x / uOut.x, 1. - pos.y / uOut.y));
+  if (pos.x > uOut.x || pos.y > uOut.y || t.z >= d.r) { gl_Position = vec4(0., 0., 2., 1.); return; }
+  // pills give way to circles where marks are packed, as the exact engine does
+  float share = uShare * (0.17 + 0.6 * exp(-d.r / 0.22)) / 0.77;
+  bool pill = fract(t.w * 7.137) < share;
+  vec2 n = d.gb * 2. - 1.; float nz = d.a;
+  vec2 dir; float l = length(n), ang = 6.2831853 * fract(t.w * 3.17 + 0.5);
+  if (uDir == 1) { vec2 tt = vec2(-n.x * n.y, 1. - n.y * n.y); dir = tt / (length(tt) + 1e-6); }
+  else if (uDir == 3) dir = vec2(0., -1.);
+  else { dir = l < 0.03 ? vec2(cos(ang), sin(ang)) : n / l; if (uDir == 2) dir = vec2(-dir.y, dir.x); }
+  dir.y = -dir.y;
+  float w = (fract(t.w * 91.7) - 0.5) * 3.4 * uWig * 0.0174533, cw = cos(w), sw = sin(w);
+  dir = vec2(dir.x * cw - dir.y * sw, dir.x * sw + dir.y * cw);
+  float squash = 1. - uFore * (1. - nz);
+  float hl = pill ? max(uD * uLen * squash * 0.5 - uLW * 0.5, 0.) : 0.;
+  float rad = pill ? uLW * 0.5 : uD * 0.5;
+  vec2 perp = vec2(-dir.y, dir.x);
+  vec2 corner = pos + dir * aC.x * (hl + rad + uPx) + perp * aC.y * (rad + uPx);
+  vP = corner; vA = pos - dir * hl; vB = pos + dir * hl; vR = rad;
+  gl_Position = vec4(corner.x / uOut.x * 2. - 1., 1. - corner.y / uOut.y * 2., 0., 1.);
+}`;
+
+  const FS_MARKS = `#version 300 es
+precision highp float;
+in vec2 vP; in vec2 vA; in vec2 vB; flat in float vR;
+uniform vec4 uColor; uniform float uPx;
+out vec4 o;
+void main(){
+  vec2 pa = vP - vA, ba = vB - vA; float bb = dot(ba, ba);
+  float h = bb > 0. ? clamp(dot(pa, ba) / bb, 0., 1.) : 0.;
+  float d = length(pa - ba * h) - vR;
+  float a = clamp(0.5 - d / uPx, 0., 1.);
+  if (a <= 0.) discard;
+  o = vec4(uColor.rgb * a * uColor.a, a * uColor.a);
+}`;
+
+  // progressive blue noise on a torus: every prefix is evenly spread (best-candidate sampling)
+  function blueNoiseTile(n, seed) {
+    let a = seed >>> 0 || 1;
+    const R = () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const G = 64, cells = Array.from({ length: G * G }, () => []), out = new Float32Array(n * 4);
+    const nearest = (x, y) => {
+      const cx = (x * G) | 0, cy = (y * G) | 0; let best = 4;
+      for (let r = 0; r < G / 2; r++) {
+        if (best < 4 && (r - 1) / G > Math.sqrt(best)) break;
+        for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const c = cells[((cy + dy + G) % G) * G + ((cx + dx + G) % G)];
+          for (const k of c) {
+            let ddx = Math.abs(out[4 * k] - x), ddy = Math.abs(out[4 * k + 1] - y);
+            if (ddx > 0.5) ddx = 1 - ddx; if (ddy > 0.5) ddy = 1 - ddy;
+            const d2 = ddx * ddx + ddy * ddy; if (d2 < best) best = d2;
+          }
+        }
+      }
+      return best;
+    };
+    for (let i = 0; i < n; i++) {
+      let bx = R(), by = R();
+      if (i > 0) {
+        let bd = -1; const tries = Math.min(24, 4 + (i >> 6));
+        for (let k = 0; k < tries; k++) { const x = R(), y = R(), d = nearest(x, y); if (d > bd) { bd = d; bx = x; by = y; } }
+      }
+      out[4 * i] = bx; out[4 * i + 1] = by; out[4 * i + 2] = (i + 0.5) / n; out[4 * i + 3] = R();
+      cells[((by * G) | 0) * G + ((bx * G) | 0)].push(i);
+    }
+    return out;
+  }
+
+  function create(canvas) {
+    const gl = canvas.getContext('webgl2', { premultipliedAlpha: true, antialias: false, preserveDrawingBuffer: true });
+    if (!gl) return null;
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+    const prog = (vs, fs) => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; };
+    let P1, P2;
+    try { P1 = prog(VS_FULL, FS_DENSITY); P2 = prog(VS_MARKS, FS_MARKS); } catch (e) { console.warn('Comput GPU preview off:', e.message); return null; }
+    const U = (p, n) => gl.getUniformLocation(p, n);
+    const tri = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, tri); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const vao1 = gl.createVertexArray(); gl.bindVertexArray(vao1); gl.bindBuffer(gl.ARRAY_BUFFER, tri);
+    const l1 = gl.getAttribLocation(P1, 'aP'); gl.enableVertexAttribArray(l1); gl.vertexAttribPointer(l1, 2, gl.FLOAT, false, 0, 0);
+    const vao2 = gl.createVertexArray(); gl.bindVertexArray(vao2); gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    const l2 = gl.getAttribLocation(P2, 'aC'); gl.enableVertexAttribArray(l2); gl.vertexAttribPointer(l2, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+    // blue-noise tile
+    const tileTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tileTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, TILE_N, 1, 0, gl.RGBA, gl.FLOAT, blueNoiseTile(TILE_N, 7));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    // density target
+    const denTex = gl.createTexture(), fbo = gl.createFramebuffer(); let dw = 0, dh = 0;
+    const sizeDensity = (w, h) => {
+      if (w === dw && h === dh) return; dw = w; dh = h;
+      gl.bindTexture(gl.TEXTURE_2D, denTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, denTex, 0);
+    };
+    const hex = (h) => { h = h.length === 4 ? '#' + [...h.slice(1)].map((c) => c + c).join('') : h; const n = parseInt(h.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
+    const TYPES = { sphere: 0, cube: 1, cylinder: 2, ring: 3, capsule: 4 };
+
+    // st: { C (engine), scene, p, W, H (output px), pw, ph (canvas px) }
+    function render(st) {
+      const { C, scene, p, W, H } = st, aspect = W / H;
+      if (canvas.width !== st.pw || canvas.height !== st.ph) { canvas.width = st.pw; canvas.height = st.ph; }
+      const shapes = (scene.shapes || []).slice(0, MAX);
+      // ---- pass 1: density ----
+      const long = Math.min(560, Math.max(st.pw, st.ph)), rw = aspect >= 1 ? long : Math.round(long * aspect), rh = Math.max(1, Math.round(rw / aspect));
+      sizeDensity(rw, rh);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, rw, rh); gl.disable(gl.BLEND);
+      gl.clearColor(0, 0.5, 0.5, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+      if (shapes.length) {
+        gl.useProgram(P1);
+        const { F, R, U: Up } = C.camera(scene), { zoom, panX, panY } = C.framing(scene);
+        let L0 = p.iLightX, L1 = p.iLightY, L2 = 1; const ll = Math.hypot(L0, L1, L2); L0 /= ll; L1 /= ll; L2 /= ll;
+        const LW = [L0 * R[0] + L1 * Up[0] - L2 * F[0], L0 * R[1] + L1 * Up[1] - L2 * F[1], L0 * R[2] + L1 * Up[2] - L2 * F[2]];
+        const PS = new Float32Array(MAX * 4), PT = new Float32Array(MAX * 4), M = new Float32Array(MAX * 9);
+        let bx = 0, by = 0, bz = 0; shapes.forEach((s) => { bx += s.x; by += s.y; bz += s.z; }); bx /= shapes.length; by /= shapes.length; bz /= shapes.length;
+        let br = 0; const k = Math.max(1e-4, scene.melt || 0);
+        shapes.forEach((s, i) => {
+          PS.set([s.x, s.y, s.z, s.size], 4 * i); PT.set([TYPES[s.type] ?? 0, s.q ?? 0.5, 0, 0], 4 * i);
+          M.set(C.rotMat(s.rx || 0, s.ry || 0, s.rz || 0), 9 * i);   // row-major upload = transpose = the inverse rotation
+          br = Math.max(br, Math.hypot(s.x - bx, s.y - by, s.z - bz) + s.size * C.SHAPES[s.type].bound + k);
+        });
+        gl.uniform2f(U(P1, 'uRes'), rw, rh); gl.uniform1f(U(P1, 'uAspect'), aspect); gl.uniform1f(U(P1, 'uZoom'), zoom); gl.uniform2f(U(P1, 'uPan'), panX, panY);
+        gl.uniform3fv(U(P1, 'uF'), F); gl.uniform3fv(U(P1, 'uR'), R); gl.uniform3fv(U(P1, 'uU'), Up); gl.uniform3fv(U(P1, 'uLW'), LW); gl.uniform3f(U(P1, 'uLC'), L0, L1, L2);
+        gl.uniform1i(U(P1, 'uN'), shapes.length); gl.uniform4fv(U(P1, 'uPS'), PS); gl.uniform4fv(U(P1, 'uPT'), PT); gl.uniformMatrix3fv(U(P1, 'uM'), false, M);
+        gl.uniform1f(U(P1, 'uMelt'), scene.melt || 0); gl.uniform1f(U(P1, 'uGround'), scene.ground ?? 0.6); gl.uniform1f(U(P1, 'uGY'), C.groundY(scene) - 0.004);
+        gl.uniform1f(U(P1, 'uSP'), p.iShadowPacking); gl.uniform1f(U(P1, 'uRP'), p.iRimPacking); gl.uniform1f(U(P1, 'uInvert'), p.imgInvert ? 1 : 0); gl.uniform1f(U(P1, 'uEdge'), p.imgEdge);
+        gl.uniform4f(U(P1, 'uBS'), bx, by, bz, br);
+        gl.bindVertexArray(vao1); gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+      // ---- pass 2: marks ----
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, st.pw, st.ph);
+      if (p.background === 'none') gl.clearColor(0, 0, 0, 0); else { const b = hex(p.background); gl.clearColor(b[0], b[1], b[2], 1); }
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      if (!shapes.length) return;
+      gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gl.useProgram(P2);
+      const D = Math.max(0.3, p.markPx), ld = C.logoDensity(p);
+      const Mmax = (p.ink * ld.lt * 0.835) / (D * D * ld.mean);                 // marks per px² where the density is full
+      const tilePx = Math.sqrt(TILE_N / Mmax), tx = Math.ceil(W / tilePx), ty = Math.ceil(H / tilePx);
+      const inst = Math.min(4e6, TILE_N * tx * ty);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tileTex); gl.uniform1i(U(P2, 'uTile'), 0);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, denTex); gl.uniform1i(U(P2, 'uDen'), 1);
+      gl.uniform1i(U(P2, 'uTileN'), TILE_N); gl.uniform1i(U(P2, 'uTilesX'), tx);
+      gl.uniform2f(U(P2, 'uOut'), W, H); gl.uniform1f(U(P2, 'uTilePx'), tilePx); gl.uniform1f(U(P2, 'uPx'), W / st.pw);
+      gl.uniform1f(U(P2, 'uD'), D); gl.uniform1f(U(P2, 'uLW'), D * p.lineWeight); gl.uniform1f(U(P2, 'uLen'), p.lineLength);
+      gl.uniform1f(U(P2, 'uShare'), p.lineShare); gl.uniform1f(U(P2, 'uWig'), p.wiggle); gl.uniform1f(U(P2, 'uFore'), p.foreshorten);
+      gl.uniform1i(U(P2, 'uDir'), { burst: 0, follow: 1, rings: 2, flow: 2, vertical: 3 }[p.imgDirection] ?? 0);
+      const col = hex(p.color); gl.uniform4f(U(P2, 'uColor'), col[0], col[1], col[2], 1);
+      gl.bindVertexArray(vao2); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, inst);
+      gl.bindVertexArray(null);
+    }
+    return { render, gl };
+  }
+  return { create };
+})();
 
 </script>
 <script>
@@ -1716,45 +2117,236 @@ if (typeof module !== 'undefined') module.exports = Comput;
     drawSaved();
   }
 
-  // the scene drawn by Comput's renderer: coarse while dragging, fine when let go
-  const sceneMemo = new Map();
-  async function sceneImage(draft, cancelled) {
-    const a = Comput.aspectOf(SC().aspect), long = draft ? 240 : 560;
-    const w = a >= 1 ? long : Math.round(long * a), h = Math.round(w / a);
-    const key = JSON.stringify(SC()) + '|' + [p.iLightX, p.iLightY, w, h].join(',');
-    if (sceneMemo.has(key)) return sceneMemo.get(key);
-    const im = await Comput.renderScene(SC(), p, w, h, { cancelled });
-    sceneMemo.set(key, im); while (sceneMemo.size > 6) sceneMemo.delete(sceneMemo.keys().next().value);
-    return im;
+  // ================= engine in a worker =================
+  // All heavy work runs off the page, so dragging, sliders and buttons never wait on it.
+  let cancelLocal = 0;
+  const plainImage = (im) => ({ id: im.id, name: im.name, w: im.w, h: im.h, lum: im.lum, alpha: im.alpha, normal: im.normal || null,
+    kind: im.kind, edgeSrc: im.edgeSrc, shadow: im.shadow, ao: im.ao });
+  const ENG = (() => {
+    let w = null, seq = 0; const pend = new Map(), sent = new Set();
+    try {
+      const src = $('engine-src').textContent + '\n' + $('worker-src').textContent;
+      w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+      w.onmessage = (e) => {
+        const m = e.data, q = pend.get(m.id); if (!q) return;
+        if (m.type === 'progress') { if (q.onProgress) q.onProgress(m.f); return; }
+        pend.delete(m.id);
+        if (m.type === 'done') q.res(m.r);
+        else if (m.type === 'cancelled') q.rej(new Comput.Cancelled());
+        else { if (m.message === 'image-missing' && q.imgId) sent.delete(q.imgId); q.rej(new Error(m.message)); }
+      };
+      w.onerror = (e) => { console.warn('Comput worker unavailable, working on the page instead', e.message); w = null; for (const q of pend.values()) q.rej(new Error('retry')); pend.clear(); };
+    } catch (e) { w = null; }
+    async function local({ p: pp, size, opt = {}, src, image, g = 0, keep, onProgress }) {
+      let img = image || null;
+      if (src && src.kind === 'scene') img = await Comput.renderScene(src.scene, pp, src.w, src.h, {});
+      const motion = opt.init || opt.stable || opt.fixedN;
+      return Comput.generate(pp, size, { ...opt, image: img, onProgress, cache: motion ? undefined : cache, cancelled: () => !keep && g < cancelLocal });
+    }
+    function gen(job) {
+      if (!w) return local(job);
+      let { src, image } = job;
+      if (image) { if (!sent.has(image.id)) { w.postMessage({ type: 'image', image: plainImage(image) }); sent.add(image.id); } src = { kind: 'image', id: image.id }; }
+      const id = ++seq;
+      return new Promise((res, rej) => {
+        pend.set(id, { res, rej, onProgress: job.onProgress, imgId: image && image.id });
+        w.postMessage({ type: 'gen', id, g: job.g || 0, keep: !!job.keep, p: job.p, size: job.size, opt: job.opt || {}, src: src || null });
+      }).catch((e) => { if (e && e.message === 'retry') return local(job); throw e; });
+    }
+    function cancelBelow(g) { cancelLocal = g; if (w) w.postMessage({ type: 'cancelBelow', g }); }
+    return { gen, cancelBelow };
+  })();
+  // what the engine works from: nothing (logo), a rendered scene, or a picture
+  function sceneRaster() { const a = Comput.aspectOf(SC().aspect), w = a >= 1 ? 560 : Math.round(560 * a); return { w, h: Math.round(w / a) }; }
+  function source(sc) {
+    if (p.source === 'scene') { const r = sceneRaster(); return { src: { kind: 'scene', scene: sc || SC(), w: r.w, h: r.h } }; }
+    if (p.source === 'image') return { image: effImage() };
+    return {};
   }
-  async function sourceImage(draft, cancelled) { return p.source === 'scene' ? sceneImage(draft, cancelled) : effImage(); }
 
-  // drag shapes on the artboard
-  let drag = null;
-  const cvEl = $('cv');
-  cvEl.addEventListener('pointerdown', (e) => {
-    if (p.source !== 'scene' || !single) return;
-    const W = single.width, H = single.height, bb = cvEl.getBoundingClientRect(), k = W / bb.width;
-    const mx = (e.clientX - bb.left) * k, my = (e.clientY - bb.top) * k;
-    let best = -1, bd = Infinity;
-    SC().shapes.forEach((sh, i) => {
-      const pr = Comput.projectShape(SC(), sh, W, H), d = Math.hypot(mx - pr.px, my - pr.py);
-      if (d < Math.max(pr.r * 1.3, 14 * k) && d < bd) { bd = d; best = i; }
-    });
-    if (best < 0) return;
-    ui.sel = best; syncScene();
-    drag = { id: e.pointerId, x: mx, y: my, k, H, W };
-    cvEl.setPointerCapture(e.pointerId); $('view').classList.add('grabbing'); draw(single);
+  // ================= live GPU preview for scenes =================
+  let gpu = null;
+  try { gpu = ComputGPU.create($('gl')); } catch (e) { gpu = null; }
+  let sceneVer = 0, gpuQueued = false, exactTimer = 0;
+  const outSize = () => { const a = Comput.aspectOf(SC().aspect), W = p.size; return { W, H: Math.max(1, Math.round(W / a)) }; };
+  function fitBoard(W, H) {
+    const vs = viewScale(W, H), cw = W * vs, ch = H * vs;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5, 6000 / Math.max(cw, ch));
+    return { vs, cw, ch, pw: Math.max(1, Math.round(cw * dpr)), ph: Math.max(1, Math.round(ch * dpr)) };
+  }
+  const gpuLive = () => !!gpu && p.source === 'scene' && ui.mode === 'single';
+  function gpuFrame() {
+    gpuQueued = false; if (!gpuLive()) return;
+    const { W, H } = outSize(), f = fitBoard(W, H), gl = $('gl'), cv = $('cv');
+    gl.style.width = f.cw + 'px'; gl.style.height = f.ch + 'px';
+    cv.style.width = f.cw + 'px'; cv.style.height = f.ch + 'px';
+    try { gpu.render({ C: Comput, scene: SC(), p, W, H, pw: f.pw, ph: f.ph }); } catch (e) { console.warn(e); gpu = null; return; }
+    gl.classList.add('on'); cv.style.visibility = 'hidden';
+    $('boardTag').textContent = `${W} × ${H} PX · VIEW ${Math.round(f.vs * 100)}% · LIVE`;
+    drawGizmo();
+  }
+  function requestGPU() { if (!gpuQueued) { gpuQueued = true; requestAnimationFrame(gpuFrame); } }
+  function showExact() { const gl = $('gl'), cv = $('cv'); cv.style.visibility = ''; gl.classList.remove('on'); }
+  // scene edits: redraw live at once, compute the exact version once things settle
+  function sceneTouched(live) {
+    sceneVer++;
+    if (MOT.frames || MOT.playing) { stopMotion(true); syncMotion(); }
+    if (gpuLive()) {
+      requestGPU(); busy(false, 'Live preview');
+      clearTimeout(exactTimer);
+      const go = () => { if (held > 0 || gest) { exactTimer = setTimeout(go, 120); return; } run(false); };
+      exactTimer = setTimeout(go, live ? 260 : 90);
+    } else schedule(live, live ? 30 : 40);
+    save(); if (!live) syncScene();
+  }
+
+  // ================= 3D controls =================
+  ui.tool = { mode: 'move', axis: 'free', ...(ui.tool || {}) };
+  const view = $('view'), ov = $('ov');
+  const AX = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
+  const boardRect = () => $('gl').classList.contains('on') ? $('gl').getBoundingClientRect() : $('cv').getBoundingClientRect();
+  function toOut(e) { const { W, H } = outSize(), b = boardRect(); return { x: ((e.clientX - b.left) / b.width) * W, y: ((e.clientY - b.top) / b.height) * H, k: W / b.width }; }
+  function pick(m) {
+    const { W, H } = outSize();
+    return Comput.pickShape(SC(), W, H, m.x, m.y, 10 * m.k);
+  }
+  function drawGizmo() {
+    const sel = SEL(), show = p.source === 'scene' && ui.mode === 'single' && sel;
+    if (!show) { ov.innerHTML = ''; return; }
+    const { W, H } = outSize(), f = fitBoard(W, H), k = W / f.cw;
+    ov.setAttribute('viewBox', `0 0 ${W} ${H}`); ov.style.width = f.cw + 'px'; ov.style.height = f.ch + 'px';
+    const c = Comput.projectShape(SC(), sel, W, H), L = sel.size * 1.7 + 0.08;
+    let out = `<circle class="halo" cx="${c.px}" cy="${c.py}" r="${c.r * 1.15}"/><circle class="ring${ui.tool.mode === 'rotate' ? ' solid' : ''}" cx="${c.px}" cy="${c.py}" r="${c.r * 1.15}"/>`;
+    for (const a of ['x', 'y', 'z']) {
+      const v = AX[a], e = Comput.projectPoint(SC(), sel.x + v[0] * L, sel.y + v[1] * L, sel.z + v[2] * L, W, H), on = ui.tool.axis === a;
+      const dx = e.px - c.px, dy = e.py - c.py, len = Math.hypot(dx, dy);
+      if (len < 8 * k) continue;   // axis pointing at you: nothing to grab
+      out += `<line class="halo" x1="${c.px}" y1="${c.py}" x2="${e.px}" y2="${e.py}"/><line class="ax${on ? ' on' : ''}" x1="${c.px}" y1="${c.py}" x2="${e.px}" y2="${e.py}"/>`;
+      out += `<circle class="h${on ? ' on' : ''}" data-axis="${a}" cx="${e.px}" cy="${e.py}" r="${7 * k}"/><text x="${e.px + (dx / len) * 13 * k}" y="${e.py + (dy / len) * 13 * k + 3.5 * k}" text-anchor="middle" style="font-size:${10 * k}px">${a.toUpperCase()}</text>`;
+    }
+    ov.innerHTML = out; ov.style.pointerEvents = 'none';
+  }
+  function setTool(mode, axis) {
+    if (mode) ui.tool.mode = mode; if (axis) ui.tool.axis = axis;
+    $('toolSeg').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === ui.tool.mode));
+    $('axisSeg').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === ui.tool.axis));
+    save(); drawGizmo();
+  }
+  $('toolSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setTool(b.dataset.v); });
+  $('axisSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setTool(null, b.dataset.v); });
+  function resetView() { Object.assign(SC(), { yaw: 0, pitch: 12, zoom: 1, panX: 0, panY: 0 }); sceneTouched(false); }
+  $('resetView').addEventListener('click', resetView);
+
+  function applyRot(sh, M2) { const M = Comput.matMul(M2, Comput.rotMat(sh.rx || 0, sh.ry || 0, sh.rz || 0)), e = Comput.matToEuler(M); sh.rx = e.rx; sh.ry = e.ry; sh.rz = e.rz; }
+  let gest = null; const touches = new Map(); let spaceDown = false;
+  function edit(kind, axis, m, dxCss, dyCss) {
+    const sc = SC(), sh = SEL(); if (!sh) return;
+    const { W, H } = outSize(), fr = Comput.framing(sc), { R, U, F } = Comput.camera(sc);
+    const dxo = m.x - gest.last.x, dyo = m.y - gest.last.y;
+    if (kind === 'move') {
+      if (axis === 'free') {
+        const du = (dxo * 2) / (H * fr.zoom), dv = (-dyo * 2) / (H * fr.zoom);
+        sh.x += du * R[0] + dv * U[0]; sh.y += du * R[1] + dv * U[1]; sh.z += du * R[2] + dv * U[2];
+      } else {
+        const a = AX[axis], c0 = Comput.projectPoint(sc, sh.x, sh.y, sh.z, W, H), c1 = Comput.projectPoint(sc, sh.x + a[0], sh.y + a[1], sh.z + a[2], W, H);
+        const sx = c1.px - c0.px, sy = c1.py - c0.py, l2 = sx * sx + sy * sy;
+        if (l2 > 1) { const t = (dxo * sx + dyo * sy) / l2; sh.x += a[0] * t; sh.y += a[1] * t; sh.z += a[2] * t; }
+      }
+      sh.x = Math.max(-3, Math.min(3, sh.x)); sh.y = Math.max(-2, Math.min(2, sh.y)); sh.z = Math.max(-2, Math.min(2, sh.z));
+    } else if (kind === 'rotate') {
+      if (axis === 'free') applyRot(sh, Comput.matMul(Comput.axisMat(U[0], U[1], U[2], dxCss * 0.6), Comput.axisMat(R[0], R[1], R[2], dyCss * 0.6)));
+      else applyRot(sh, Comput.axisMat(...AX[axis], (dxCss - dyCss) * 0.6));
+    } else if (kind === 'scale') {
+      const f = Math.exp((dxCss - dyCss) * 0.006);
+      if (axis === 'y' && Comput.SHAPES[sh.type].q) sh.q = Math.max(0, Math.min(1, (sh.q ?? 0.5) * f + (f - 1) * 0.05));
+      else sh.size = Math.max(0.04, Math.min(1.5, sh.size * f));
+    }
+  }
+  view.addEventListener('contextmenu', (e) => { if (p.source === 'scene') e.preventDefault(); });
+  view.addEventListener('pointerdown', (e) => {
+    if (p.source !== 'scene' || ui.mode !== 'single' || !SC().shapes) return;
+    if (e.target.closest('button, input')) return;
+    try { view.setPointerCapture(e.pointerId); } catch (err) {}
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const m = toOut(e);
+    if (touches.size === 2) {
+      const [a, b] = [...touches.values()];
+      gest = { kind: 'pinch', d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 }; return;
+    }
+    const pan = e.shiftKey || e.button === 1 || e.button === 2 || spaceDown;
+    let kind, axis = ui.tool.axis;
+    const hAxis = hitAxis(m);
+    if (!pan && hAxis && SEL()) { axis = hAxis; setTool(null, hAxis); kind = ui.tool.mode; }
+    else if (pan) kind = 'pan';
+    else { const hit = pick(m); if (hit >= 0) { if (hit !== ui.sel) { ui.sel = hit; syncScene(); } kind = ui.tool.mode; } else kind = 'orbit'; }
+    gest = { kind, axis, last: m, cx: e.clientX, cy: e.clientY };
+    view.classList.add('grabbing'); drawGizmo(); e.preventDefault();
   });
-  cvEl.addEventListener('pointermove', (e) => {
-    if (!drag || e.pointerId !== drag.id) return;
-    const bb = cvEl.getBoundingClientRect(), mx = (e.clientX - bb.left) * drag.k, my = (e.clientY - bb.top) * drag.k, sh = SEL(); if (!sh) return;
-    const du = ((mx - drag.x) * 2) / drag.H, dv = (-(my - drag.y) * 2) / drag.H, { R, U } = Comput.projectShape(SC(), sh, drag.W, drag.H);
-    sh.x += du * R[0] + dv * U[0]; sh.y += du * R[1] + dv * U[1]; sh.z += du * R[2] + dv * U[2];
-    drag.x = mx; drag.y = my; changed('scene', true);
+  function hitAxis(m) {
+    const sel = SEL(); if (!sel) return null;
+    const { W, H } = outSize(), c = Comput.projectShape(SC(), sel, W, H), L = sel.size * 1.7 + 0.08; let best = null, bd = 12 * m.k;
+    for (const a of ['x', 'y', 'z']) { const v = AX[a], e = Comput.projectPoint(SC(), sel.x + v[0] * L, sel.y + v[1] * L, sel.z + v[2] * L, W, H); if (Math.hypot(e.px - c.px, e.py - c.py) < 8 * m.k) continue; const d = Math.hypot(m.x - e.px, m.y - e.py); if (d < bd) { bd = d; best = a; } }
+    return best;
+  }
+  view.addEventListener('pointermove', (e) => {
+    if (!gest || !touches.has(e.pointerId)) return;
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const sc = SC();
+    if (gest.kind === 'pinch') {
+      if (touches.size < 2) return;
+      const [a, b] = [...touches.values()], d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const { H } = outSize(), k = toOut({ clientX: mx, clientY: my }).k, fr = Comput.framing(sc);
+      sc.zoom = Math.max(0.2, Math.min(8, fr.zoom * (d / gest.d)));
+      sc.panX = (sc.panX || 0) - ((mx - gest.mx) * k * 2) / (H * sc.zoom); sc.panY = (sc.panY || 0) + ((my - gest.my) * k * 2) / (H * sc.zoom);
+      gest.d = d; gest.mx = mx; gest.my = my; sceneTouched(true); return;
+    }
+    const m = toOut(e), dxCss = e.clientX - gest.cx, dyCss = e.clientY - gest.cy;
+    if (gest.kind === 'orbit') { sc.yaw = (((sc.yaw || 0) - dxCss * 0.4 + 540) % 360) - 180; sc.pitch = Math.max(0, Math.min(80, (sc.pitch ?? 12) + dyCss * 0.3)); }
+    else if (gest.kind === 'pan') { const { H } = outSize(), z = Comput.framing(sc).zoom; sc.panX = (sc.panX || 0) - ((m.x - gest.last.x) * 2) / (H * z); sc.panY = (sc.panY || 0) + ((m.y - gest.last.y) * 2) / (H * z); }
+    else edit(gest.kind, gest.axis, m, dxCss, dyCss);
+    if (gest.kind !== 'pan') gest.last = m;
+    gest.cx = e.clientX; gest.cy = e.clientY;
+    if (gest.kind === 'pan') gest.last = toOut(e);
+    sceneTouched(true);
   });
-  const endDrag = (e) => { if (!drag || e.pointerId !== drag.id) return; drag = null; $('view').classList.remove('grabbing'); changed('scene', false); };
-  cvEl.addEventListener('pointerup', endDrag); cvEl.addEventListener('pointercancel', endDrag);
+  const endGest = (e) => {
+    touches.delete(e.pointerId);
+    if (touches.size === 0 && gest) { gest = null; view.classList.remove('grabbing'); sceneTouched(false); }
+    else if (touches.size === 1 && gest && gest.kind === 'pinch') gest = null;
+  };
+  view.addEventListener('pointerup', endGest); view.addEventListener('pointercancel', endGest);
+  view.addEventListener('wheel', (e) => {
+    if (p.source !== 'scene' || ui.mode !== 'single') return;
+    e.preventDefault();
+    const sc = SC(), fr = Comput.framing(sc), { W, H } = outSize(), m = toOut(e), aspect = W / H;
+    const mouseWheel = !e.ctrlKey && e.deltaX === 0 && (e.deltaMode !== 0 || Math.abs(e.deltaY) >= 50);
+    if (e.ctrlKey || mouseWheel) {
+      const z2 = Math.max(0.2, Math.min(8, fr.zoom * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015))));
+      // keep the point under the cursor still
+      const ux = ((m.x / W) * 2 - 1) * aspect, vy = 1 - (m.y / H) * 2;
+      sc.panX = fr.panX + ux / fr.zoom - ux / z2; sc.panY = fr.panY + vy / fr.zoom - vy / z2; sc.zoom = z2;
+    } else { sc.panX = fr.panX + (e.deltaX * m.k * 2) / (H * fr.zoom); sc.panY = fr.panY - (e.deltaY * m.k * 2) / (H * fr.zoom); }
+    sceneTouched(true);
+  }, { passive: false });
+  document.addEventListener('keydown', (e) => {
+    if (p.source !== 'scene' || ui.mode !== 'single' || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+    const k = e.key.toLowerCase();
+    if (k === ' ') { spaceDown = true; return; }
+    if (k === 'g' || k === 'm') setTool('move'); else if (k === 'r') setTool('rotate'); else if (k === 's') setTool('scale');
+    else if (k === 'x' || k === 'y' || k === 'z') setTool(null, ui.tool.axis === k ? 'free' : k);
+    else if (k === 'escape') setTool(null, 'free');
+    else if (k === 'f' || k === 'home') resetView();
+    else if ((k === 'delete' || k === 'backspace') && SEL()) { SC().shapes.splice(ui.sel, 1); ui.sel = Math.max(0, ui.sel - 1); sceneTouched(false); }
+    else if (k === 'd' && e.shiftKey) $('dupShape').click();
+    else if (k.startsWith('arrow') && SEL()) {
+      const st = e.shiftKey ? 0.1 : 0.02, sh = SEL(), { R, U } = Comput.camera(SC());
+      const du = k === 'arrowleft' ? -st : k === 'arrowright' ? st : 0, dv = k === 'arrowup' ? st : k === 'arrowdown' ? -st : 0;
+      sh.x += du * R[0] + dv * U[0]; sh.y += du * R[1] + dv * U[1]; sh.z += du * R[2] + dv * U[2]; sceneTouched(false);
+    } else return;
+    e.preventDefault();
+  });
+  document.addEventListener('keyup', (e) => { if (e.key === ' ') spaceDown = false; });
 
   // the picture Comput actually works from: the image plus its 3D form, if any
   const effMemo = new Map();
@@ -1830,6 +2422,8 @@ if (typeof module !== 'undefined') module.exports = Comput;
     $('nFileRow').hidden = !(img && p.normalSource === 'file');
     $('lightSrcLab').hidden = $('lightSeg').hidden = !(img && form);
     if (scn) syncScene();
+    $('sceneBar').hidden = !(scn && ui.mode === 'single');
+    if (!gpuLive()) { showExact(); if (typeof ov !== 'undefined') ov.innerHTML = ''; }
     $('nHint').textContent = { none: 'Add a 3D form so pills follow the surface and Comput can light it like the logo.',
       inflate: 'Rounds out the outline, as if the shape were inflated. Works best with a cut-out PNG. No 3D software needed.',
       file: 'A normal map from 3D software, framed exactly like the picture.' }[p.normalSource] || '';
@@ -1849,8 +2443,9 @@ if (typeof module !== 'undefined') module.exports = Comput;
   let job = 0, single = null, rspUrl = null, rspSvgText = '', rspResults = [], timer = 0, finalDue = false;
   function changed(k, live = false) {
     if (MOT.frames || MOT.playing) { stopMotion(true); syncMotion(); }
-    save(); if (k !== 'lightX' && k !== 'iLightX') syncAll();
-    if (k === 'color' || k === 'background') { if (single) draw(single); if (rspResults.length) composeRsp(); return; }
+    save(); if (k !== 'lightX' && k !== 'iLightX' && !(live && k === 'scene')) syncAll();
+    if (k === 'color' || k === 'background') { if (single) draw(single); if (gpuLive() && $('gl').classList.contains('on')) requestGPU(); if (rspResults.length) composeRsp(); return; }
+    if (gpuLive() && k !== 'size' && k !== 'seed') { sceneTouched(live); return; }
     const slow = POS.has(k) || TONE.has(k) || ['all', 'size', 'source', 'image', 'markPx', 'ink', 'normalSource', 'inflateRound', 'normalFlipY', 'scene'].includes(k);
     if (live && slow) { finalDue = true; schedule(true, 30); }
     else schedule(false, live ? 0 : 40);
@@ -1864,7 +2459,8 @@ if (typeof module !== 'undefined') module.exports = Comput;
   }
 
   async function run(draft) {
-    const my = ++job, cancelled = () => my !== job;
+    const my = ++job, cancelled = () => my !== job, ver = sceneVer;
+    ENG.cancelBelow(my);
     if (!draft) finalDue = false;
     try {
       const still = ui.mode !== 'responsive';
@@ -1874,19 +2470,18 @@ if (typeof module !== 'undefined') module.exports = Comput;
         single = null; rspResults = []; const cv = $('cv'); cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
         reads(); busy(false, 'Add a shape to start'); return;
       }
-      if (p.source === 'scene' && performance.now() - t0 > -1) busy(true, draft ? 'Preview' : 'Drawing the scene', 0.02);
-      const image = await sourceImage(draft, cancelled);
-      if (cancelled()) return;
+      const live = gpuLive() && !draft;
+      if (live) requestGPU();
+      const srcs = source();
       for (let i = 0; i < sizes.length; i++) {
-        const label = draft ? 'Preview' : still ? 'Computing' : `Level ${i + 1}/${sizes.length}`;
-        const r = await Comput.generate(p, sizes[i], {
-          cache, draft, cancelled, image,
-          onProgress: (f) => { if (performance.now() - t0 > 120) busy(true, `${label} · ${Math.round(((i + f) / sizes.length) * 100)}%`, (i + f) / sizes.length); },
-        });
+        const label = live ? 'Refining' : draft ? 'Preview' : still ? 'Computing' : `Level ${i + 1}/${sizes.length}`;
+        const r = await ENG.gen({ p, size: sizes[i], opt: { draft }, ...srcs, g: my,
+          onProgress: (f) => { if (performance.now() - t0 > 120) busy(true, `${label} · ${Math.round(((i + f) / sizes.length) * 100)}%`, (i + f) / sizes.length); } });
         if (cancelled()) return;
         out.push(r);
       }
-      if (still) { single = out[0]; if (!MOT.playing) draw(single); } else { rspResults = out; composeRsp(); }
+      if (live && ver !== sceneVer) return;     // the scene moved on: keep the live preview
+      if (still) { single = out[0]; if (!MOT.playing) { draw(single); if (p.source === 'scene') showExact(); } } else { rspResults = out; composeRsp(); }
       reads();
       busy(false, draft ? 'Preview · full detail on release' : 'Ready');
       if (draft && finalDue && !dragging()) schedule(false, 0);
@@ -1941,14 +2536,8 @@ if (typeof module !== 'undefined') module.exports = Comput;
     if (p.background !== 'none') { ctx.fillStyle = p.background; ctx.fillRect(0, 0, pw, ph); }
     ctx.setTransform(k, 0, 0, k, 0, 0);
     paintMarks(ctx, r, vis);
-    if (p.source === 'scene' && SEL() && ui.mode === 'single' && !vis && !r.hx) {
-      const pr = Comput.projectShape(SC(), SEL(), W, H);
-      ctx.save(); ctx.setLineDash([5 / k, 4 / k]); ctx.lineWidth = 1.5 / k; ctx.strokeStyle = '#7a7f78';
-      ctx.beginPath(); ctx.arc(pr.px, pr.py, pr.r * 1.15, 0, 6.2832); ctx.stroke();
-      ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(pr.px - 5 / k, pr.py); ctx.lineTo(pr.px + 5 / k, pr.py); ctx.moveTo(pr.px, pr.py - 5 / k); ctx.lineTo(pr.px, pr.py + 5 / k); ctx.stroke();
-      ctx.restore();
-    }
-    $('view').classList.toggle('scene', p.source === 'scene');
+    $('view').classList.toggle('scene', p.source === 'scene' && ui.mode === 'single');
+    if (!vis && !r.hx) drawGizmo();
     $('boardTag').textContent = `${W} × ${H} PX · VIEW ${Math.round(vs * 100)}%`;
   }
 
@@ -1997,6 +2586,8 @@ if (typeof module !== 'undefined') module.exports = Comput;
     const r = ui.mode === 'responsive', m = ui.mode === 'motion';
     $('rspCtl').hidden = !r; $('actRsp').hidden = !r; $('actSingle').hidden = r || m;
     $('motCtl').hidden = $('actMot').hidden = !m;
+    $('sceneBar').hidden = !(p.source === 'scene' && ui.mode === 'single');
+    if (!gpuLive()) showExact();
     $('cv').hidden = r; $('rspImg').hidden = !r; $('viewSeg').hidden = r;
     if (!m) stopMotion(true); else syncMotion();
     syncAll(); layout(); reads(); schedule(false, 0);
@@ -2019,8 +2610,8 @@ if (typeof module !== 'undefined') module.exports = Comput;
   // exports always use full detail, never a draft
   async function fullResults(sizes) {
     const out = [];
-    const image = await sourceImage(false);
-    for (const s of sizes) out.push(await Comput.generate(p, s, { cache, image }));
+    const srcs = source();
+    for (const s of sizes) out.push(await ENG.gen({ p, size: s, ...srcs, keep: true }));
     return out;
   }
   $('export').addEventListener('click', async () => {
@@ -2204,7 +2795,7 @@ Use at most 8 shapes. Compose with clear negative space and simple, bold forms. 
       if (type === 'build' || type === 'diffuse') {
         busy(true, 'Preparing', 0.1);
         const pp = type === 'diffuse' ? { ...p, centreMode: 'off' } : p;
-        const base = await Comput.generate(pp, p.size, { cache, image: await sourceImage(false) });
+        const base = await ENG.gen({ p: pp, size: p.size, ...source(), keep: true });
         if (gone()) return;
         const R = Comput.rng(p.seed + 5), u = new Float32Array(base.n); for (let j = 0; j < base.n; j++) u[j] = R();
         MOT.frames = { mode: 'mask', type, base, u, count, fps };
@@ -2217,12 +2808,10 @@ Use at most 8 shapes. Compose with clear negative space and simple, bold forms. 
           const t = f / count, pf = { ...p };
           if (type === 'light') { pf[lx] = rr * Math.cos(a0 + 2 * Math.PI * t); pf[ly] = rr * Math.sin(a0 + 2 * Math.PI * t); }
           if (type === 'turn') pf.scene = { ...SC(), yaw: (SC().yaw || 0) + 360 * t };
-          let image;
-          if (p.source === 'scene') {
-            const a = Comput.aspectOf(pf.scene.aspect), w = a >= 1 ? 420 : Math.round(420 * a);
-            image = await Comput.renderScene(pf.scene, pf, w, Math.round(w / a));
-          } else image = effImage();
-          const r = await Comput.generate(pf, p.size, { image, init: prev, fixedN: N, iters: prev ? 3 : undefined, stable: true });
+          let srcs;
+          if (p.source === 'scene') { const a = Comput.aspectOf(pf.scene.aspect), w = a >= 1 ? 420 : Math.round(420 * a); srcs = { src: { kind: 'scene', scene: pf.scene, w, h: Math.round(w / a) } }; }
+          else srcs = source();
+          const r = await ENG.gen({ p: pf, size: p.size, ...srcs, keep: true, opt: { init: prev, fixedN: N, iters: prev ? 3 : undefined, stable: true } });
           if (gone()) return;
           prev = r.relaxed; N = r.n; list.push(compact(r));
           const el = (performance.now() - t0) / 1000, left = (el / (f + 1)) * (count - f - 1);
@@ -2314,7 +2903,7 @@ Use at most 8 shapes. Compose with clear negative space and simple, bold forms. 
   function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('on'), 2200); }
 
   let rz = 0;
-  window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(layout, 120); });
+  window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { layout(); if (gpuLive() && $('gl').classList.contains('on')) requestGPU(); }, 120); });
   (async () => {
     const saved = await restoreImage(), im = saved || sampleImg();
     setImageQuiet(im);

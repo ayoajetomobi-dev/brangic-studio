@@ -793,18 +793,61 @@ const Comput = (() => {
     const U = [Rt[1] * F[2] - Rt[2] * F[1], Rt[2] * F[0] - Rt[0] * F[2], Rt[0] * F[1] - Rt[1] * F[0]];
     return { F, R: Rt, U };
   }
+  // camera framing on top of orbit: zoom (1 = the frame is 2 units tall) and pan (camera-plane units)
+  const framing = (scene) => ({ zoom: Math.min(8, Math.max(0.2, scene.zoom || 1)), panX: scene.panX || 0, panY: scene.panY || 0 });
+  // where a world point lands on the artboard (px)
+  function projectPoint(scene, x, y, z, W, H) {
+    const { R, U, F } = camera(scene), { zoom, panX, panY } = framing(scene), aspect = W / H;
+    const u = x * R[0] + y * R[1] + z * R[2], v = x * U[0] + y * U[1] + z * U[2];
+    return { px: (((u - panX) * zoom + aspect) / (2 * aspect)) * W, py: ((1 - (v - panY) * zoom) / 2) * H, R, U, F, zoom };
+  }
   // where a shape's centre lands on the artboard (px), and how big it looks
   function projectShape(scene, sh, W, H) {
-    const { R, U } = camera(scene), aspect = W / H;
-    const u = sh.x * R[0] + sh.y * R[1] + sh.z * R[2], v = sh.x * U[0] + sh.y * U[1] + sh.z * U[2];
-    return { px: ((u + aspect) / (2 * aspect)) * W, py: ((1 - v) / 2) * H, r: (sh.size / 2) * H, R, U };
+    const q = projectPoint(scene, sh.x, sh.y, sh.z, W, H);
+    return { ...q, r: (sh.size / 2) * H * q.zoom };
   }
+  // local half-extents of each shape before scaling (used for the ground height)
+  function shapeExtent(type, q) {
+    switch (type) {
+      case 'cube': return [0.8, 0.8 * (0.25 + 1.5 * q), 0.8];
+      case 'cylinder': return [0.8, 0.8 * (0.2 + 1.6 * q), 0.8];
+      case 'ring': { const r = 0.08 + 0.4 * q; return [0.8 + r, r, 0.8 + r]; }
+      case 'capsule': return [0.42, 1.4 * q + 0.42, 0.42];
+      default: return [1, 1, 1];
+    }
+  }
+  // the ground sits under the lowest point of any shape
+  function groundY(scene) {
+    let m = Infinity;
+    for (const sh of scene.shapes || []) {
+      let ey;
+      if (sh.type === 'sphere') ey = 1;
+      else { const e = shapeExtent(sh.type, sh.q ?? 0.5), M = rotMat(sh.rx || 0, sh.ry || 0, sh.rz || 0); ey = Math.abs(M[3]) * e[0] + Math.abs(M[4]) * e[1] + Math.abs(M[5]) * e[2]; }
+      m = Math.min(m, sh.y - ey * sh.size);
+    }
+    return m;
+  }
+  // rotation matrix (Z·Y·X, row-major) back to the X, Y, Z angles in degrees
+  function matToEuler(M) {
+    const b = Math.asin(Math.max(-1, Math.min(1, -M[6])));
+    let a, c;
+    if (Math.abs(M[6]) < 0.9999) { a = Math.atan2(M[7], M[8]); c = Math.atan2(M[3], M[0]); }
+    else { a = Math.atan2(-M[5], M[4]); c = 0; }
+    const d = 180 / Math.PI;
+    return { rx: a * d, ry: b * d, rz: c * d };
+  }
+  // rotation about any axis (Rodrigues), row-major
+  function axisMat(ax, ay, az, deg) {
+    const l = Math.hypot(ax, ay, az) || 1, x = ax / l, y = ay / l, z = az / l, t = (deg * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t), C = 1 - c;
+    return [c + x * x * C, x * y * C - z * s, x * z * C + y * s, y * x * C + z * s, c + y * y * C, y * z * C - x * s, z * x * C - y * s, z * y * C + x * s, c + z * z * C];
+  }
+  function matMul(A, B) { const o = []; for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) o.push(A[3 * i] * B[j] + A[3 * i + 1] * B[3 + j] + A[3 * i + 2] * B[6 + j]); return o; }
   const aspectOf = (a) => ({ '1:1': 1, '4:5': 0.8, '3:2': 1.5, '16:9': 16 / 9 }[a] || 1);
   const sceneKey = (scene, p, w, h) => 'scene:' + w + 'x' + h + ':' + JSON.stringify(scene) + ':' + [p.iLightX, p.iLightY].join(',');
 
   async function renderScene(scene, p, w, h, opt = {}) {
     const maybeYield = yielder(opt, 0, 1);
-    const n = w * h, aspect = w / h;
+    const n = w * h, aspect = w / h, { zoom, panX, panY } = framing(scene);
     const lum = new Float32Array(n), alpha = new Float32Array(n), kind = new Uint8Array(n), edgeSrc = new Float32Array(n);
     const NX = new Float32Array(n), NY = new Float32Array(n), NZ = new Float32Array(n), SH = new Float32Array(n), AO = new Float32Array(n).fill(1);
     const id = sceneKey(scene, p, w, h);
@@ -846,9 +889,9 @@ const Comput = (() => {
     let minY = Infinity;
     // pass 1: the shapes
     for (let j = 0; j < h; j++) {
-      const v = 1 - ((j + 0.5) / h) * 2;
+      const v = (1 - ((j + 0.5) / h) * 2) / zoom + panY;
       for (let i = 0; i < w; i++) {
-        const u = (((i + 0.5) / w) * 2 - 1) * aspect, q = j * w + i;
+        const u = ((((i + 0.5) / w) * 2 - 1) * aspect) / zoom + panX, q = j * w + i;
         const ox = u * R[0] + v * U[0] - F[0] * D, oy = u * R[1] + v * U[1] - F[1] * D, oz = u * R[2] + v * U[2] - F[2] * D;
         // ray vs bounding sphere
         const cx = ox - bx, cy = oy - by, cz = oz - bz, b = cx * F[0] + cy * F[1] + cz * F[2], c = cx * cx + cy * cy + cz * cz - br * br, disc = b * b - c;
@@ -877,13 +920,13 @@ const Comput = (() => {
       if ((j & 7) === 0) await maybeYield(0.8 * (j / h));
     }
     // pass 2: shadows on an invisible ground just under the lowest shape
-    const gs = scene.ground ?? 0.6, gy0 = minY - 0.004;
+    const gs = scene.ground ?? 0.6, gy0 = groundY(scene) - 0.004;
     if (gs > 0 && minY < Infinity && F[1] < -1e-3) {
       for (let j = 0; j < h; j++) {
-        const v = 1 - ((j + 0.5) / h) * 2;
+        const v = (1 - ((j + 0.5) / h) * 2) / zoom + panY;
         for (let i = 0; i < w; i++) {
           const q = j * w + i; if (kind[q]) continue;
-          const u = (((i + 0.5) / w) * 2 - 1) * aspect;
+          const u = ((((i + 0.5) / w) * 2 - 1) * aspect) / zoom + panX;
           const ox = u * R[0] + v * U[0] - F[0] * D, oy = u * R[1] + v * U[1] - F[1] * D, oz = u * R[2] + v * U[2] - F[2] * D;
           const t = (gy0 - oy) / F[1]; if (t <= 0) continue;
           const x = ox + F[0] * t, z = oz + F[2] * t;
@@ -897,6 +940,32 @@ const Comput = (() => {
       }
     }
     return img;
+  }
+
+  // which shape is under an artboard point: cast one ray, take the first surface it meets,
+  // or the shape it passed closest to if it misses by less than tolPx
+  function pickShape(scene, W, H, px, py, tolPx = 8) {
+    const list = (scene.shapes || []).map((sh) => ({ f: shapeSdf(sh.type, sh.q ?? 0.5), M: rotMat(sh.rx || 0, sh.ry || 0, sh.rz || 0), sh }));
+    if (!list.length) return -1;
+    const { F, R, U } = camera(scene), { zoom, panX, panY } = framing(scene), aspect = W / H;
+    const u = (((px / W) * 2 - 1) * aspect) / zoom + panX, v = (1 - (py / H) * 2) / zoom + panY;
+    const o = [u * R[0] + v * U[0] - F[0] * 6, u * R[1] + v * U[1] - F[1] * 6, u * R[2] + v * U[2] - F[2] * 6];
+    const tol = (tolPx * 2) / (H * zoom), near = new Array(list.length).fill(Infinity);
+    let t = 0;
+    for (let it = 0; it < 200 && t < 14; it++) {
+      const x = o[0] + F[0] * t, y = o[1] + F[1] * t, z = o[2] + F[2] * t;
+      let d = Infinity, bi = -1;
+      list.forEach((L, i) => {
+        const dx = x - L.sh.x, dy = y - L.sh.y, dz = z - L.sh.z, M = L.M, sc = L.sh.size;
+        const e = L.f((M[0] * dx + M[3] * dy + M[6] * dz) / sc, (M[1] * dx + M[4] * dy + M[7] * dz) / sc, (M[2] * dx + M[5] * dy + M[8] * dz) / sc) * sc;
+        if (e < near[i]) near[i] = e;
+        if (e < d) { d = e; bi = i; }
+      });
+      if (d < 0.002) return bi;
+      t += Math.max(0.002, d * 0.9);
+    }
+    let best = -1, bd = tol; near.forEach((e, i) => { if (e < bd) { bd = e; best = i; } });
+    return best;
   }
 
   // ready-made scenes to start from
@@ -1008,6 +1077,6 @@ const Comput = (() => {
       `<style>${css}</style>` + bgRect(p, V, VH) + groups + `</svg>`;
   }
 
-  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
+  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, coverage, pickShape, camera, framing, projectPoint, groundY, rotMat, matToEuler, axisMat, matMul, logoDensity, shapeExtent, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
 })();
 if (typeof module !== 'undefined') module.exports = Comput;

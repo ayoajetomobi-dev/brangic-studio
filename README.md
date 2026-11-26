@@ -4,6 +4,8 @@ Generator for the brand's 0/1 graphics: circles are 0s, pills are 1s. Output is 
 
 - **Logo:** the sphere logomark, at any size, with centre diffusion (cross or hamburger).
 - **Scene:** build illustrations from Comput's own 3D shapes (sphere, cube, cylinder, ring, capsule) with shapes that hide each other, cast shadows and an optional ground shadow. Drag shapes on the artboard, turn and tilt the camera, melt shapes together, start from ready-made scenes or save your own (saved in the browser).
+- **Scene controls:** drag a shape to edit it with the current tool (Move, Rotate, Scale; Free or X, Y, Z). Drag empty space to orbit, Shift-drag or right-drag to pan, scroll or pinch to zoom. Keys: G move, R rotate, S scale, X/Y/Z axis, Esc free, F reset view, Delete remove, Shift+D duplicate, arrows nudge.
+- **Speed:** the engine runs in a background worker, so the page never waits on it. In Scene mode a GPU preview (`src/gpu.js`) draws the same lighting and 0/1 marks live at full frame rate while you work; the exact render replaces it a moment after you stop.
 - **Looks:** built-in looks (Ink, Paper, Night, Fine, Bold) and your own. Export saved looks and scenes as one `comput-library.json` for the team, and import it on another computer.
 - **Motion:** Build up, Light orbit, Diffusion (logo) and Turn (scenes). Frames start from the previous frame's marks so they drift smoothly. Export as video (MP4 or WebM, depending on the browser), a ZIP of SVG frames, or for Build up one animated SVG.
 - **Describe a scene:** in the Claude artifact only, Claude builds a scene from the shape library from a sentence. The public site has no AI connection.
@@ -12,7 +14,7 @@ Generator for the brand's 0/1 graphics: circles are 0s, pills are 1s. Output is 
 
 - Live: https://brangic.studio/comput
 - `src/engine.js` is the generator, ported from `sphere_logo_dense.py`, with a size-aware scaling law and centre diffusion, plus the image path (tone mapping, outline packing, a flow field for pill direction).
-- `src/app.html` is the interface.
+- `src/app.html` is the interface, `src/worker.js` runs the engine off the page, `src/gpu.js` is the live scene preview.
 - `src/build.sh` puts the engine into the page and writes `docs/comput/index.html` (served by GitHub Pages) and `comput.html` (the Claude artifact version).
 
 After editing anything in `src/`, run `src/build.sh`, then commit and push. Pages republishes on its own.
