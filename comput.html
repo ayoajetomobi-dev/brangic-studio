@@ -191,10 +191,25 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
           <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden>
         </div>
         <p class="sub">You can also drop or paste a picture. A 3D render or a cut-out PNG with a transparent background works best.</p>
+        <div class="group-t">3D form</div>
+        <div class="seg" id="nSeg" role="group" aria-label="3D form"></div>
+        <p class="sub" id="nHint" style="margin:0"></p>
+        <div class="rows" id="inflateRows"></div>
+        <div class="imgrow" id="nFileRow">
+          <img class="thumb" id="nThumb" alt="Normal map">
+          <div class="imgbtns">
+            <button class="btn ghost sm" id="nPick">Choose normal map</button>
+            <label class="toggle">Green points down<input type="checkbox" id="nFlip"></label>
+          </div>
+          <input type="file" id="nFile" accept="image/png,image/jpeg,image/webp" hidden>
+        </div>
+        <div class="row" id="lightSrcLab"><label>Light and shadow from</label><span></span></div>
+        <div class="seg" id="lightSeg" role="group" aria-label="Light and shadow from"></div>
       </section>
 
       <section class="mod" data-src="image">
         <div class="mod-h"><span class="lab">Tone</span><span class="lab mute">Light and shadow</span></div>
+        <p class="sub" id="toneNote" style="margin:0">Lit by Comput with the logo's light, shadow and rim. Move the light in the Light panel.</p>
         <div class="rows" id="toneRows"></div>
         <label class="toggle">Light marks on dark (marks follow the light)<input type="checkbox" id="invert"></label>
       </section>
@@ -205,7 +220,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
         <div class="rows" id="diffRows"></div>
       </section>
 
-      <section class="mod" data-src="sphere">
+      <section class="mod" id="lightMod">
         <div class="mod-h"><span class="lab">Light</span><span class="lab mute">Drag the dot</span></div>
         <div class="light">
           <svg class="pad" id="pad" viewBox="0 0 112 112" tabindex="0" role="slider" aria-label="Light position, use arrow keys to move"></svg>
@@ -218,7 +233,8 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
         <div class="rows" id="imgMarkRows" data-src="image"></div>
         <div class="rows" id="markRows"></div>
         <div class="seg" id="dirSeg" role="group" aria-label="Pill direction" data-src="sphere"></div>
-        <div class="seg" id="imgDirSeg" role="group" aria-label="Pill direction" data-src="image"></div>
+        <div class="seg" id="imgDirSeg" role="group" aria-label="Pill direction"></div>
+        <div class="seg" id="surfDirSeg" role="group" aria-label="Pill direction"></div>
       </section>
 
       <section class="mod">
@@ -333,7 +349,14 @@ const Comput = (() => {
     imgInvert: false,    // false: dark areas get marks (ink on paper); true: light areas get marks (light on black)
     imgFloor: 0.08,      // sparse marks even in the lightest parts of a shape, so the form still reads
     imgEdge: 0.6,        // extra packing along outlines, like the rim of the logo
-    imgDirection: 'flow',// 'flow' along shapes, 'across' through shapes, 'radial', 'vertical'
+    imgDirection: 'flow',// 'flow' along shapes, 'across' through shapes, 'radial', 'vertical';
+                         // with a normal map also 'burst' (like the logo), 'follow' (pole to pole), 'rings'
+    imgLight: 'light',   // with a 3D form: tone from Comput's own 'light' (the logo's), the 'render', or a 'mix'
+    normalSource: 'none',// 3D form: 'none' (flat picture), 'inflate' (rounded from the outline), 'file' (a normal map)
+    inflateRound: 0.85,
+    // illustrations have their own light, so lighting one never changes the logo
+    iLightX: -0.25, iLightY: 0.45, iShadowPacking: 5.0, iRimPacking: 4.0,  // inflate: 1 = fully domed, lower = flatter top with rounded edges
+    normalFlipY: false,  // normal maps saved the DirectX way have green pointing down
   };
   const RADIUS_RATIO = 0.44; // 220 / 500 in the original
 
@@ -661,7 +684,8 @@ const Comput = (() => {
   // =================== illustration from an image ===================
   // img = { id, w, h, lum: Float32Array (0 black … 1 white), alpha: Float32Array (0 … 1) }
 
-  const TONE_KEYS = ['imgBrightness', 'imgContrast', 'imgCutoff', 'imgGamma', 'imgInvert', 'imgFloor', 'imgEdge'];
+  const TONE_KEYS = ['imgBrightness', 'imgContrast', 'imgCutoff', 'imgGamma', 'imgInvert', 'imgFloor', 'imgEdge',
+    'imgLight', 'iLightX', 'iLightY', 'iShadowPacking', 'iRimPacking'];
   const toneKey = (p) => TONE_KEYS.map((k) => p[k]).join('|');
 
   // how much ink each image cell wants, 0 … 1
@@ -671,8 +695,31 @@ const Comput = (() => {
     const n = img.w * img.h, C = new Float32Array(n), w = img.w, h = img.h;
     const b = p.imgBrightness, c = p.imgContrast, cut = Math.min(0.95, p.imgCutoff), g = p.imgGamma, fl = p.imgFloor;
     if (img.hasAlpha === undefined) { img.hasAlpha = false; for (let i = 0; i < n; i++) if (img.alpha[i] < 0.99) { img.hasAlpha = true; break; } }
+    // With a normal map, Comput can light the object itself with the logo's model:
+    // more marks in shadow (away from the light) and towards the rim (turning away from you).
+    const NM = img.normal && p.imgLight !== 'render' ? img.normal : null;
+    let L0 = p.iLightX, L1 = p.iLightY, L2 = 1;
+    { const ln = Math.hypot(L0, L1, L2); L0 /= ln; L1 /= ln; L2 /= ln; }
+    const SP = p.iShadowPacking, RP = p.iRimPacking, LT = 1 + SP + RP;
+    const logoLight = NM && p.imgLight === 'light';
     for (let i = 0; i < n; i++) {
       let t = p.imgInvert ? img.lum[i] : 1 - img.lum[i];       // tone that should carry marks
+      if (logoLight) {
+        // the logo's model, untouched by the photo tone controls (see imagePlan for the count)
+        const nx = NM.x[i], ny = NM.y[i], nz = NM.z[i];
+        const li = Math.min(1, Math.max(0, nx * L0 + ny * L1 + nz * L2)), sh = 1 - li, rim = 1 - Math.max(0, nz);
+        let tl = (1 + SP * sh * sh + RP * Math.pow(rim, 2.5)) / LT;
+        if (p.imgInvert) tl = 1 - tl + 1 / LT;
+        C[i] = tl * img.alpha[i];
+        continue;
+      }
+      if (NM) {
+        const nx = NM.x[i], ny = NM.y[i], nz = NM.z[i];
+        const li = Math.min(1, Math.max(0, nx * L0 + ny * L1 + nz * L2)), sh = 1 - li, rim = 1 - Math.max(0, nz);
+        let tl = (1 + SP * sh * sh + RP * Math.pow(rim, 2.5)) / LT;
+        if (p.imgInvert) tl = 1 - tl;
+        t = p.imgLight === 'mix' ? 0.5 * (t + tl) : tl;
+      }
       t = (t - 0.5) * c + 0.5 - b * 0.5;
       t = t <= cut ? 0 : (t - cut) / (1 - cut);
       if (t > 1) t = 1;
@@ -749,6 +796,22 @@ const Comput = (() => {
     }
   }
 
+  // average of the logo's density over its disc, for calibrating illustrations lit by Comput
+  const _ld = new Map();
+  function logoDensity(p) {
+    const key = [p.iLightX, p.iLightY, p.iShadowPacking, p.iRimPacking].join('|');
+    if (_ld.has(key)) return _ld.get(key);
+    let L0 = p.iLightX, L1 = p.iLightY, L2 = 1; const ln = Math.hypot(L0, L1, L2); L0 /= ln; L1 /= ln; L2 /= ln;
+    let a = 0, c = 0;
+    for (let j = 0; j < 120; j++) for (let i = 0; i < 120; i++) {
+      const x = -1 + (i + 0.5) / 60, y = -1 + (j + 0.5) / 60; if (x * x + y * y > 1) continue;
+      const nz = Math.sqrt(1 - x * x - y * y), li = Math.min(1, Math.max(0, x * L0 + y * L1 + nz * L2));
+      a += 1 + p.iShadowPacking * (1 - li) ** 2 + p.iRimPacking * Math.pow(1 - nz, 2.5); c++;
+    }
+    const v = { mean: a / c, lt: 1 + p.iShadowPacking + p.iRimPacking };
+    _ld.set(key, v); return v;
+  }
+
   // mark size at an output width; at other widths (responsive levels) it follows the growth rule
   const markAt = (p, size) => p.markPx * Math.pow(size / p.size, p.growth);
 
@@ -761,6 +824,10 @@ const Comput = (() => {
     let D = Math.max(0.3, markAt(p, size));
     const Aeff = Math.PI * (D / 2) * (D / 2) * 1.6;          // average 0/1 footprint
     let n = (p.ink * 0.72 * sum * cellArea) / Aeff;           // full tone ≈ 72% ink, with clumping in the darkest parts
+    if (img.normal && p.imgLight === 'light') {
+      // match the logo: it puts 0.835 / D² marks per px² where its density equals the disc average
+      n = (p.ink * logoDensity(p).lt * 0.835 * sum * cellArea) / (D * D * logoDensity(p).mean);
+    }
     if (n > p.maxMarks) { D *= Math.sqrt(n / p.maxMarks); n = p.maxMarks; }
     return { W, H, grain: D, n: Math.round(n), sum, inkArea: inkCells * cellArea, cellArea };
   }
@@ -805,12 +872,30 @@ const Comput = (() => {
     const { plan: pl, n: N, X, Y } = pos, { W, H } = pl, D = pl.grain, rad = D / 2;
     const lw = D * p.lineWeight, gap = (p.gap / 100) * D;
     const UX = new Float64Array(N), UY = new Float64Array(N), HALF = new Float64Array(N);
-    const F = p.imgDirection === 'flow' || p.imgDirection === 'across' ? flowField(img, p) : null;
-    const half = Math.max((D * p.lineLength) / 2 - lw / 2, 0);
+    const dir = p.imgDirection, NM = img.normal;
+    const surf = dir === 'burst' || dir === 'follow' || dir === 'rings';
+    const useN = NM && surf;
+    // surface modes need a normal map; without one they fall back to following the picture
+    const F = dir === 'flow' || dir === 'across' || (surf && !NM) ? flowField(img, p) : null;
+    const half0 = Math.max((D * p.lineLength) / 2 - lw / 2, 0);
+    let halfMax = 0;
     for (let i = 0; i < N; i++) {
-      let ux = 0, uy = 1;
-      if (F) {
-        const ci = Math.min(img.h - 1, (Y[i] / H * img.h) | 0) * img.w + Math.min(img.w - 1, (X[i] / W * img.w) | 0);
+      let ux = 0, uy = 1, squash = 1;
+      const ci = Math.min(img.h - 1, (Y[i] / H * img.h) | 0) * img.w + Math.min(img.w - 1, (X[i] / W * img.w) | 0);
+      if (useN) {
+        // directions from the surface itself, exactly as on the logo (normals are y-up)
+        const nx = NM.x[ci], ny = NM.y[ci];
+        if (dir === 'follow') {
+          const tx = -nx * ny, ty = 1 - ny * ny, n = Math.hypot(tx, ty) + 1e-9;
+          ux = tx / n; uy = -ty / n;
+        } else {
+          let rx = nx, ry = ny, n = Math.hypot(rx, ry);
+          if (n < 0.03) { const a = R() * 6.283185307179586; rx = Math.cos(a); ry = Math.sin(a); n = 1; }
+          ux = rx / n; uy = -ry / n;
+          if (dir === 'rings') { const t = ux; ux = -uy; uy = t; }
+        }
+        squash = 1 - p.foreshorten * (1 - Math.max(0, NM.z[ci]));   // shorter as the surface turns away
+      } else if (F) {
         let fx = F.fx[ci], fy = F.fy[ci];
         if (p.imgDirection === 'across') { const t = fx; fx = -fy; fy = t; }
         // where the picture has no clear structure, ease towards upright
@@ -823,9 +908,11 @@ const Comput = (() => {
         if (n > 1e-6) { ux = dx / n; uy = dy / n; }
       }
       const w = (R.normal() * p.wiggle * Math.PI) / 180, c = Math.cos(w), s = Math.sin(w);
-      UX[i] = ux * c - uy * s; UY[i] = ux * s + uy * c; HALF[i] = half;
+      UX[i] = ux * c - uy * s; UY[i] = ux * s + uy * c;
+      HALF[i] = useN ? Math.max((D * p.lineLength * squash) / 2 - lw / 2, 0) : half0;
+      if (HALF[i] > halfMax) halfMax = HALF[i];
     }
-    const out = await assign({ N, PX: X, PY: Y, UX, UY, HALF, halfMax: half, D, lw, rad, gap, W, H }, p, R, maybeYield);
+    const out = await assign({ N, PX: X, PY: Y, UX, UY, HALF, halfMax, D, lw, rad, gap, W, H }, p, R, maybeYield);
     return {
       kind: 'image', size: W, width: W, height: H, plan: pl, grain: D, rad, lw, n: N, x: X, y: Y, ux: UX, uy: UY, half: HALF,
       ...out, draft: pos.draft, ms: Date.now() - t0 + (pos.fromCache ? 0 : pos.ms),
@@ -836,6 +923,7 @@ const Comput = (() => {
   // the top left, with cast shadows and a soft ground shadow. Transparent background.
   function sampleImage(w = 480, h = 640) {
     const lum = new Float32Array(w * h), alpha = new Float32Array(w * h);
+    const NX = new Float32Array(w * h), NY = new Float32Array(w * h), NZ = new Float32Array(w * h), NA = new Float32Array(w * h);
     const S = [[0.02, -0.38, 0, 0.36], [0.1, 0.12, 0, 0.21], [0.03, 0.43, 0, 0.13]];
     let L = [-0.55, 0.6, 0.58]; const ln = Math.hypot(...L); L = L.map((v) => v / ln);
     const hitSphere = (ox, oy, oz, dx, dy, dz, sp) => {
@@ -850,6 +938,7 @@ const Comput = (() => {
       for (const sp of S) { const dx = x - sp[0], dy = y - sp[1], q = sp[3] * sp[3] - dx * dx - dy * dy; if (q > 0 && sp[2] + Math.sqrt(q) > bz) { bz = sp[2] + Math.sqrt(q); best = sp; } }
       if (best) {
         const nx = (x - best[0]) / best[3], ny = (y - best[1]) / best[3], nz = (bz - best[2]) / best[3];
+        NX[k] = nx; NY[k] = ny; NZ[k] = nz; NA[k] = 1;
         let d = Math.max(0, nx * L[0] + ny * L[1] + nz * L[2]);
         for (const sp of S) if (sp !== best) { const t = hitSphere(x, y, bz, L[0], L[1], L[2], sp); if (t > 1e-4 && t < Infinity) { d *= 0.15; break; } }
         // contact darkening where spheres meet
@@ -862,7 +951,73 @@ const Comput = (() => {
         if (r < 1) { lum[k] = 0; alpha[k] = 0.85 * Math.pow(1 - r, 1.5); }
       }
     }
-    return { id: 'sample-cairn', name: 'Sample: cairn', w, h, lum, alpha };
+    return {
+      id: 'sample-cairn', name: 'Sample: cairn', w, h, lum, alpha,
+      normals: { id: 'sample-cairn-normals', name: 'Sample normals', w, h, x: NX, y: NY, z: NZ, alpha: NA },
+    };
+  }
+
+  // Inflate: give a flat cut-out shape a rounded 3D surface, like blowing up a balloon.
+  // Distance to the outline -> a height (a circle becomes an exact sphere) -> normals.
+  // roundness 1 = fully domed, lower = flatter top with rounded edges.
+  function inflate(render, roundness = 1) {
+    const w = render.w, h = render.h, n = w * h, mask = new Uint8Array(n);
+    let hasAlpha = false; for (let i = 0; i < n; i++) if (render.alpha[i] < 0.99) { hasAlpha = true; break; }
+    for (let i = 0; i < n; i++) mask[i] = hasAlpha ? render.alpha[i] > 0.5 : render.lum[i] < 0.9 && render.alpha[i] > 0.5;
+    const dt = edt(mask, w, h);
+    let dmax = 0; for (let i = 0; i < n; i++) if (dt[i] > dmax) dmax = dt[i];
+    const Rk = Math.max(1, Math.max(0.05, Math.min(1, roundness)) * dmax), H = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const d = Math.min(dt[i], Rk); H[i] = mask[i] ? Math.sqrt(d * (2 * Rk - d)) : 0; }
+    const r = Math.max(1, Math.round(0.03 * dmax)); boxBlur(H, w, h, r);
+    const x = new Float32Array(n), y = new Float32Array(n), z = new Float32Array(n), alpha = new Float32Array(n);
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+      const k = j * w + i; if (!mask[k]) continue;
+      const gx = (H[j * w + Math.min(w - 1, i + 1)] - H[j * w + Math.max(0, i - 1)]) / 2;
+      const gyUp = (H[Math.max(0, j - 1) * w + i] - H[Math.min(h - 1, j + 1) * w + i]) / 2;
+      const l = Math.hypot(gx, gyUp, 1);
+      x[k] = -gx / l; y[k] = -gyUp / l; z[k] = 1 / l; alpha[k] = hasAlpha ? render.alpha[k] : 1;
+    }
+    return { id: render.id + '|inflate|' + roundness, name: 'Inflated outline', w, h, x, y, z, alpha };
+  }
+  // exact Euclidean distance (px) from each inside pixel to the nearest outside pixel
+  function edt(mask, w, h) {
+    const INF = 1e20, f = new Float64Array(Math.max(w, h)), d = new Float64Array(Math.max(w, h));
+    const v = new Int32Array(Math.max(w, h)), z = new Float64Array(Math.max(w, h) + 1), D = new Float64Array(w * h);
+    const pass = (len) => {
+      let k = 0; v[0] = 0; z[0] = -INF; z[1] = INF;
+      for (let q = 1; q < len; q++) {
+        let s;
+        while (true) { s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]); if (s <= z[k] && k > 0) k--; else break; }
+        if (s <= z[k]) { v[0] = q; z[0] = -INF; z[1] = INF; k = 0; continue; }
+        k++; v[k] = q; z[k] = s; z[k + 1] = INF;
+      }
+      k = 0;
+      for (let q = 0; q < len; q++) { while (z[k + 1] < q) k++; d[q] = (q - v[k]) * (q - v[k]) + f[v[k]]; }
+    };
+    for (let i = 0; i < w; i++) { for (let j = 0; j < h; j++) f[j] = mask[j * w + i] ? INF : 0; pass(h); for (let j = 0; j < h; j++) D[j * w + i] = d[j]; }
+    for (let j = 0; j < h; j++) { for (let i = 0; i < w; i++) f[i] = D[j * w + i]; pass(w); for (let i = 0; i < w; i++) D[j * w + i] = Math.sqrt(d[i]); }
+    return D;
+  }
+
+  // Put a render and a normal map together. nmap = { id, w, h, x, y, z (y-up), alpha }.
+  // 'light' uses the normal map alone (its size and outline); otherwise the render leads and
+  // the normals are stretched to match it.
+  function combine(render, nmap, mode, flipY) {
+    if (!nmap) return render;
+    const light = mode === 'light', base = light ? nmap : render, w = base.w, h = base.h, n = w * h;
+    const x = new Float32Array(n), y = new Float32Array(n), z = new Float32Array(n);
+    const sx = nmap.w / w, sy = nmap.h / h, fy = flipY ? -1 : 1;
+    for (let j = 0; j < h; j++) {
+      const row = Math.min(nmap.h - 1, ((j + 0.5) * sy) | 0) * nmap.w;
+      for (let i = 0; i < w; i++) {
+        const k = row + Math.min(nmap.w - 1, ((i + 0.5) * sx) | 0), o = j * w + i;
+        x[o] = nmap.x[k]; y[o] = fy * nmap.y[k]; z[o] = nmap.z[k];
+      }
+    }
+    return {
+      id: (light ? '' : render.id) + '|' + nmap.id + '|' + mode + '|' + (flipY ? 1 : 0), name: render.name, w, h,
+      lum: light ? new Float32Array(n).fill(0.5) : render.lum, alpha: light ? nmap.alpha : render.alpha, normal: { x, y, z },
+    };
   }
 
   // Full run. opt.cache: a Map reused between calls, so changing only the 0s and 1s
@@ -951,7 +1106,7 @@ const Comput = (() => {
       `<style>${css}</style>` + bgRect(p, V, VH) + groups + `</svg>`;
   }
 
-  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, plan, imagePlan, sampleImage, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
+  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, plan, imagePlan, sampleImage, combine, inflate, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
 })();
 if (typeof module !== 'undefined') module.exports = Comput;
 
@@ -990,13 +1145,18 @@ if (typeof module !== 'undefined') module.exports = Comput;
       ['imgEdge', 'Outline', 0, 1.5, 0.01, f2],
       ['imgCutoff', 'Clean paper', 0, 0.6, 0.01, (v) => `${Math.round(v * 100)}%`],
     ],
+    inflateRows: [
+      ['inflateRound', 'Roundness', 0.1, 1, 0.01, (v) => `${Math.round(v * 100)}%`],
+    ],
     imgMarkRows: [
       ['markPx', 'Mark size', 0.6, 12, 0.1, (v) => `${(+v).toFixed(1)} px`],
       ['ink', 'Density', 0.2, 2.5, 0.01, (v) => `${Math.round(v * 100)}%`],
     ],
     lightRows: [
-      ['shadowPacking', 'Shadow', 0, 12, 0.1, (v) => (+v).toFixed(1)],
-      ['rimPacking', 'Rim', 0, 12, 0.1, (v) => (+v).toFixed(1)],
+      ['shadowPacking', 'Shadow', 0, 12, 0.1, (v) => (+v).toFixed(1), 'sphere'],
+      ['rimPacking', 'Rim', 0, 12, 0.1, (v) => (+v).toFixed(1), 'sphere'],
+      ['iShadowPacking', 'Shadow', 0, 12, 0.1, (v) => (+v).toFixed(1), 'image'],
+      ['iRimPacking', 'Rim', 0, 12, 0.1, (v) => (+v).toFixed(1), 'image'],
     ],
     markRows: [
       ['lineShare', 'Share of 1s (pills)', 0, 1, 0.01, (v) => `${Math.round(v * 100)}%`],
@@ -1045,6 +1205,9 @@ if (typeof module !== 'undefined') module.exports = Comput;
     seg('diffSeg', [['off', 'Off'], ['cross', 'Cross'], ['hamburger', 'Hamburger']], () => p.centreMode, (v) => { p.centreMode = v; changed('centreMode'); }),
     seg('srcSeg', [['sphere', 'Logo'], ['image', 'Illustration']], () => p.source, (v) => { p.source = v; changed('source'); }),
     seg('imgDirSeg', [['flow', 'Along'], ['across', 'Across'], ['radial', 'Radial'], ['vertical', 'Upright']], () => p.imgDirection, (v) => { p.imgDirection = v; changed('imgDirection'); }),
+    seg('surfDirSeg', [['burst', 'Burst'], ['follow', 'Follow'], ['rings', 'Rings'], ['flow', 'Along']], () => p.imgDirection, (v) => { p.imgDirection = v; changed('imgDirection'); }),
+    seg('nSeg', [['none', 'Flat'], ['inflate', 'Inflate'], ['file', 'Normal map']], () => p.normalSource, (v) => setNormalSource(v)),
+    seg('lightSeg', [['light', 'Comput'], ['mix', 'Mix'], ['render', 'Picture']], () => p.imgLight, (v) => { p.imgLight = v; changed('imgLight'); }),
     seg('dirSeg', [['radial', 'Radial'], ['follow', 'Follow'], ['vertical', 'Upright']], () => p.direction, (v) => { p.direction = v; changed('direction'); }),
     seg('fromSeg', [['centre', 'Centre'], ['light', 'Light spot']], () => p.radialFrom, (v) => { p.radialFrom = v; changed('radialFrom'); }),
     seg('modeSeg', null, () => ui.mode, (v) => { ui.mode = v; save(); applyMode(); }),
@@ -1054,24 +1217,27 @@ if (typeof module !== 'undefined') module.exports = Comput;
 
   // ---------- light pad ----------
   const pad = $('pad'), PC = 56, PR = 50;
+  // the logo and illustrations each keep their own light
+  const LK = () => (p.source === 'image' ? ['iLightX', 'iLightY'] : ['lightX', 'lightY']);
   function drawPad() {
-    const x = PC + p.lightX * PR, y = PC - p.lightY * PR;
+    const [kx, ky] = LK(), x = PC + p[kx] * PR, y = PC - p[ky] * PR;
     pad.innerHTML = `<line class="hair" x1="${PC - PR}" x2="${PC + PR}" y1="${PC}" y2="${PC}"/><line class="hair" y1="${PC - PR}" y2="${PC + PR}" x1="${PC}" x2="${PC}"/>` +
       `<circle class="ball" cx="${PC}" cy="${PC}" r="${PR}"/><circle class="glow" cx="${x}" cy="${y}" r="18"/><circle class="dot" cx="${x}" cy="${y}" r="5"/>`;
-    pad.setAttribute('aria-valuetext', `left right ${f2(p.lightX)}, bottom top ${f2(p.lightY)}`);
+    pad.setAttribute('aria-valuetext', `left right ${f2(p[kx])}, bottom top ${f2(p[ky])}`);
   }
   function setLight(nx, ny, live) {
     const r = Math.hypot(nx, ny); if (r > 1) { nx /= r; ny /= r; }
-    p.lightX = Math.round(nx * 100) / 100; p.lightY = Math.round(ny * 100) / 100;
-    drawPad(); changed('lightX', live);
+    const [kx, ky] = LK();
+    p[kx] = Math.round(nx * 100) / 100; p[ky] = Math.round(ny * 100) / 100;
+    drawPad(); changed(kx, live);
   }
   const fromEvent = (e) => { const b = pad.getBoundingClientRect(), s = 112 / b.width; return [((e.clientX - b.left) * s - PC) / PR, (PC - (e.clientY - b.top) * s) / PR]; };
   pad.addEventListener('pointerdown', (e) => { pad.setPointerCapture(e.pointerId); setLight(...fromEvent(e), true); });
   pad.addEventListener('pointermove', (e) => { if (pad.hasPointerCapture(e.pointerId)) setLight(...fromEvent(e), true); });
-  pad.addEventListener('pointerup', (e) => { if (pad.hasPointerCapture(e.pointerId)) { pad.releasePointerCapture(e.pointerId); changed('lightX', false); } });
+  pad.addEventListener('pointerup', (e) => { if (pad.hasPointerCapture(e.pointerId)) { pad.releasePointerCapture(e.pointerId); changed(LK()[0], false); } });
   pad.addEventListener('keydown', (e) => {
     const d = { ArrowLeft: [-0.05, 0], ArrowRight: [0.05, 0], ArrowUp: [0, 0.05], ArrowDown: [0, -0.05] }[e.key];
-    if (!d) return; e.preventDefault(); setLight(p.lightX + d[0], p.lightY + d[1], false);
+    if (!d) return; e.preventDefault(); const [kx, ky] = LK(); setLight(p[kx] + d[0], p[ky] + d[1], false);
   });
 
   // ---------- source image ----------
@@ -1105,6 +1271,8 @@ if (typeof module !== 'undefined') module.exports = Comput;
     const url = URL.createObjectURL(file);
     try {
       const el = new Image(); el.src = url; await el.decode();
+      // a new picture no longer matches the old normal map
+      if (NMAP) { setNormals(null, false); if (p.normalSource === 'file') { p.normalSource = 'none'; if (['burst', 'follow', 'rings'].includes(p.imgDirection)) p.imgDirection = 'flow'; } }
       setImage(rasterize(el, file.name), true);
       if (p.source !== 'image') { p.source = 'image'; changed('source'); }
       toast(`Loaded ${file.name}`);
@@ -1120,7 +1288,10 @@ if (typeof module !== 'undefined') module.exports = Comput;
   }
   $('pick').addEventListener('click', () => $('file').click());
   $('file').addEventListener('change', () => { loadFile($('file').files[0]); $('file').value = ''; });
-  $('useSample').addEventListener('click', () => { setImage(sampleImg(), false); toast('Using the sample'); });
+  $('useSample').addEventListener('click', () => {
+    const im = sampleImg(); setNormals(sampleNormals(im), false); setImage(im, false); toast('Using the sample');
+  });
+  function sampleNormals(im) { const nm = im.normals; nm.url = normalsUrl(nm); return nm; }
   $('invert').addEventListener('change', () => {
     p.imgInvert = $('invert').checked;
     // a sensible pairing: light marks on black, dark marks on paper
@@ -1131,8 +1302,89 @@ if (typeof module !== 'undefined') module.exports = Comput;
   const app = document.querySelector('.app');
   document.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); app.classList.add('dropping'); } });
   document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) app.classList.remove('dropping'); });
-  document.addEventListener('drop', (e) => { e.preventDefault(); app.classList.remove('dropping'); const f = e.dataTransfer?.files?.[0]; if (f) loadFile(f); });
+  // a dropped file whose name says normal (normal, nrm, _n.png) is taken as the normal map
+  const isNormalName = (f) => /normal|nrm|[_-]n\.(png|jpe?g|webp)$/i.test(f.name);
+  document.addEventListener('drop', (e) => { e.preventDefault(); app.classList.remove('dropping'); const f = e.dataTransfer?.files?.[0]; if (f) (isNormalName(f) ? loadNormalFile : loadFile)(f); });
   document.addEventListener('paste', (e) => { const f = [...(e.clipboardData?.files || [])].find((x) => /^image\//.test(x.type)); if (f) { e.preventDefault(); loadFile(f); } });
+
+  // ---------- 3D form: normal map or inflate ----------
+  const NMAP_KEY = 'comput.normals';
+  let NMAP = null;
+  function rasterizeNormals(el, name) {
+    const nw = el.naturalWidth || 720, nh = el.naturalHeight || 720, sc = Math.min(1, RASTER / Math.max(nw, nh));
+    const w = Math.max(1, Math.round(nw * sc)), h = Math.max(1, Math.round(nh * sc));
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d'); ctx.drawImage(el, 0, 0, w, h);
+    const d = ctx.getImageData(0, 0, w, h).data, n = w * h;
+    const x = new Float32Array(n), y = new Float32Array(n), z = new Float32Array(n), alpha = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const r = d[4 * i], g = d[4 * i + 1], b = d[4 * i + 2], a = d[4 * i + 3];
+      let vx = r / 127.5 - 1, vy = g / 127.5 - 1, vz = b / 127.5 - 1; const l = Math.hypot(vx, vy, vz);
+      // transparent or black pixels are background
+      alpha[i] = r + g + b < 12 || l < 0.3 ? 0 : a / 255;
+      if (l > 0) { x[i] = vx / l; y[i] = vy / l; z[i] = vz / l; }
+    }
+    return { id: 'n:' + name + ':' + w + 'x' + h + ':' + Date.now(), name, w, h, x, y, z, alpha, url: cv.toDataURL('image/png') };
+  }
+  function normalsUrl(nm) {
+    const cv = document.createElement('canvas'); cv.width = nm.w; cv.height = nm.h;
+    const ctx = cv.getContext('2d'), id = ctx.createImageData(nm.w, nm.h);
+    for (let i = 0; i < nm.w * nm.h; i++) id.data.set([(nm.x[i] + 1) * 127.5, (nm.y[i] + 1) * 127.5, (nm.z[i] + 1) * 127.5, nm.alpha[i] * 255], 4 * i);
+    ctx.putImageData(id, 0, 0); return cv.toDataURL('image/png');
+  }
+  function setNormals(nm, persist) {
+    NMAP = nm; $('nThumb').src = nm ? nm.url : '';
+    try { if (persist && nm && nm.url.length < 2.5e6) localStorage.setItem(NMAP_KEY, JSON.stringify({ name: nm.name, url: nm.url })); else if (!persist) localStorage.removeItem(NMAP_KEY); } catch (e) {}
+  }
+  function setNormalSource(v) {
+    if (v === 'file' && !NMAP) { p.normalSource = v; syncAll(); $('nFile').click(); return; }
+    const wasForm = p.normalSource !== 'none';
+    p.normalSource = v;
+    const surf = ['burst', 'follow', 'rings'].includes(p.imgDirection);
+    if (v !== 'none' && !wasForm && !surf) p.imgDirection = 'burst';
+    if (v === 'none' && surf) p.imgDirection = 'flow';
+    changed('normalSource');
+  }
+  async function loadNormalFile(file) {
+    if (!file || !/^image\//.test(file.type)) return toast('Choose a PNG, JPG or WebP normal map');
+    const url = URL.createObjectURL(file);
+    try {
+      const el = new Image(); el.src = url; await el.decode();
+      setNormals(rasterizeNormals(el, file.name), true);
+      p.normalSource = 'file'; if (!['burst', 'follow', 'rings'].includes(p.imgDirection)) p.imgDirection = 'burst';
+      if (p.source !== 'image') p.source = 'image';
+      changed('normalSource'); toast(`Loaded normal map ${file.name}`);
+    } catch (e) { toast('Could not read that normal map'); }
+    finally { URL.revokeObjectURL(url); }
+  }
+  async function restoreNormals() {
+    try {
+      const s = JSON.parse(localStorage.getItem(NMAP_KEY) || 'null');
+      if (s && s.url) { const el = new Image(); el.src = s.url; await el.decode(); const nm = rasterizeNormals(el, s.name); nm.id = 'saved-n:' + s.name; return nm; }
+    } catch (e) {}
+    return null;
+  }
+  $('nPick').addEventListener('click', () => $('nFile').click());
+  $('nFile').addEventListener('change', () => { const f = $('nFile').files[0]; $('nFile').value = ''; if (f) loadNormalFile(f); else if (!NMAP) setNormalSource('none'); });
+  $('nFlip').addEventListener('change', () => { p.normalFlipY = $('nFlip').checked; changed('normalFlipY'); });
+
+  // the picture Comput actually works from: the image plus its 3D form, if any
+  const effMemo = new Map();
+  function effImage() {
+    if (!IMG) return null;
+    let nm = null;
+    if (p.normalSource === 'inflate') {
+      const k = 'inf|' + IMG.id + '|' + p.inflateRound;
+      nm = effMemo.get(k) || Comput.inflate(IMG, p.inflateRound); effMemo.set(k, nm);
+    } else if (p.normalSource === 'file') nm = NMAP;
+    if (!nm) return IMG;
+    const flip = p.normalSource === 'file' && p.normalFlipY;
+    const k = IMG.id + '|' + nm.id + '|' + p.imgLight + '|' + flip;
+    let e = effMemo.get(k);
+    if (!e) { e = Comput.combine(IMG, nm, p.imgLight, flip); effMemo.set(k, e); }
+    while (effMemo.size > 12) effMemo.delete(effMemo.keys().next().value);
+    return e;
+  }
 
   // ---------- size, levels, colour, misc ----------
   const lbl = (s) => (s >= 1024 ? s / 1024 + 'K' : s);
@@ -1182,7 +1434,19 @@ if (typeof module !== 'undefined') module.exports = Comput;
     $('invert').checked = !!p.imgInvert;
     $('diffRows').hidden = p.centreMode === 'off';
     const radialLogo = p.source === 'sphere' && p.direction === 'radial';
-    inputs.foreshorten.row.hidden = !radialLogo;
+    const img = p.source === 'image', form = img && p.normalSource !== 'none', lit = form && p.imgLight === 'light';
+    $('lightMod').hidden = !(p.source === 'sphere' || (form && p.imgLight !== 'render'));
+    $('imgDirSeg').hidden = !img || form; $('surfDirSeg').hidden = !form;
+    $('inflateRows').hidden = !(img && p.normalSource === 'inflate');
+    $('nFileRow').hidden = !(img && p.normalSource === 'file');
+    $('lightSrcLab').hidden = $('lightSeg').hidden = !form;
+    $('nHint').textContent = { none: 'Add a 3D form so pills follow the surface and Comput can light it like the logo.',
+      inflate: 'Rounds out the outline, as if the shape were inflated. Works best with a cut-out PNG. No 3D software needed.',
+      file: 'A normal map from 3D software, framed exactly like the picture.' }[p.normalSource] || '';
+    $('toneNote').hidden = !lit;
+    for (const k of ['imgBrightness', 'imgContrast', 'imgGamma', 'imgFloor', 'imgCutoff']) inputs[k].row.hidden = lit;
+    $('nFlip').checked = !!p.normalFlipY;
+    inputs.foreshorten.row.hidden = !(radialLogo || form);
     $('fromSeg').hidden = $('fromSeg').previousElementSibling.hidden = !radialLogo;
     drawPad(); syncs.forEach((s) => s());
   }
@@ -1194,9 +1458,9 @@ if (typeof module !== 'undefined') module.exports = Comput;
   const cache = new Map();
   let job = 0, single = null, rspUrl = null, rspSvgText = '', rspResults = [], timer = 0, finalDue = false;
   function changed(k, live = false) {
-    save(); if (k !== 'lightX') syncAll();
+    save(); if (k !== 'lightX' && k !== 'iLightX') syncAll();
     if (k === 'color' || k === 'background') { if (single) draw(single); if (rspResults.length) composeRsp(); return; }
-    const slow = POS.has(k) || TONE.has(k) || ['all', 'size', 'source', 'image', 'markPx', 'ink'].includes(k);
+    const slow = POS.has(k) || TONE.has(k) || ['all', 'size', 'source', 'image', 'markPx', 'ink', 'normalSource', 'inflateRound', 'normalFlipY'].includes(k);
     if (live && slow) { finalDue = true; schedule(true, 30); }
     else schedule(false, live ? 0 : 40);
   }
@@ -1217,7 +1481,7 @@ if (typeof module !== 'undefined') module.exports = Comput;
       for (let i = 0; i < sizes.length; i++) {
         const label = draft ? 'Preview' : ui.mode === 'single' ? 'Computing' : `Level ${i + 1}/${sizes.length}`;
         const r = await Comput.generate(p, sizes[i], {
-          cache, draft, cancelled, image: IMG,
+          cache, draft, cancelled, image: effImage(),
           onProgress: (f) => { if (performance.now() - t0 > 120) busy(true, `${label} · ${Math.round(((i + f) / sizes.length) * 100)}%`, (i + f) / sizes.length); },
         });
         if (cancelled()) return;
@@ -1338,7 +1602,7 @@ if (typeof module !== 'undefined') module.exports = Comput;
   // exports always use full detail, never a draft
   async function fullResults(sizes) {
     const out = [];
-    for (const s of sizes) out.push(await Comput.generate(p, s, { cache, image: IMG }));
+    for (const s of sizes) out.push(await Comput.generate(p, s, { cache, image: effImage() }));
     return out;
   }
   $('export').addEventListener('click', async () => {
@@ -1358,7 +1622,10 @@ if (typeof module !== 'undefined') module.exports = Comput;
   let rz = 0;
   window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(layout, 120); });
   (async () => {
-    setImageQuiet(await restoreImage() || sampleImg());
+    const saved = await restoreImage(), im = saved || sampleImg();
+    setImageQuiet(im);
+    setNormals(saved ? await restoreNormals() : sampleNormals(im), !!saved);
+    if (p.normalSource === 'file' && !NMAP) p.normalSource = 'none';
     syncAll(); applyMode();
   })();
   function setImageQuiet(im) { IMG = im; $('thumb').src = im.url; $('imgName').textContent = im.name.length > 22 ? im.name.slice(0, 20) + '…' : im.name; }

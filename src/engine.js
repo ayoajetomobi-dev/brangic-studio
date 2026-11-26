@@ -40,7 +40,14 @@ const Comput = (() => {
     imgInvert: false,    // false: dark areas get marks (ink on paper); true: light areas get marks (light on black)
     imgFloor: 0.08,      // sparse marks even in the lightest parts of a shape, so the form still reads
     imgEdge: 0.6,        // extra packing along outlines, like the rim of the logo
-    imgDirection: 'flow',// 'flow' along shapes, 'across' through shapes, 'radial', 'vertical'
+    imgDirection: 'flow',// 'flow' along shapes, 'across' through shapes, 'radial', 'vertical';
+                         // with a normal map also 'burst' (like the logo), 'follow' (pole to pole), 'rings'
+    imgLight: 'light',   // with a 3D form: tone from Comput's own 'light' (the logo's), the 'render', or a 'mix'
+    normalSource: 'none',// 3D form: 'none' (flat picture), 'inflate' (rounded from the outline), 'file' (a normal map)
+    inflateRound: 0.85,
+    // illustrations have their own light, so lighting one never changes the logo
+    iLightX: -0.25, iLightY: 0.45, iShadowPacking: 5.0, iRimPacking: 4.0,  // inflate: 1 = fully domed, lower = flatter top with rounded edges
+    normalFlipY: false,  // normal maps saved the DirectX way have green pointing down
   };
   const RADIUS_RATIO = 0.44; // 220 / 500 in the original
 
@@ -368,7 +375,8 @@ const Comput = (() => {
   // =================== illustration from an image ===================
   // img = { id, w, h, lum: Float32Array (0 black … 1 white), alpha: Float32Array (0 … 1) }
 
-  const TONE_KEYS = ['imgBrightness', 'imgContrast', 'imgCutoff', 'imgGamma', 'imgInvert', 'imgFloor', 'imgEdge'];
+  const TONE_KEYS = ['imgBrightness', 'imgContrast', 'imgCutoff', 'imgGamma', 'imgInvert', 'imgFloor', 'imgEdge',
+    'imgLight', 'iLightX', 'iLightY', 'iShadowPacking', 'iRimPacking'];
   const toneKey = (p) => TONE_KEYS.map((k) => p[k]).join('|');
 
   // how much ink each image cell wants, 0 … 1
@@ -378,8 +386,31 @@ const Comput = (() => {
     const n = img.w * img.h, C = new Float32Array(n), w = img.w, h = img.h;
     const b = p.imgBrightness, c = p.imgContrast, cut = Math.min(0.95, p.imgCutoff), g = p.imgGamma, fl = p.imgFloor;
     if (img.hasAlpha === undefined) { img.hasAlpha = false; for (let i = 0; i < n; i++) if (img.alpha[i] < 0.99) { img.hasAlpha = true; break; } }
+    // With a normal map, Comput can light the object itself with the logo's model:
+    // more marks in shadow (away from the light) and towards the rim (turning away from you).
+    const NM = img.normal && p.imgLight !== 'render' ? img.normal : null;
+    let L0 = p.iLightX, L1 = p.iLightY, L2 = 1;
+    { const ln = Math.hypot(L0, L1, L2); L0 /= ln; L1 /= ln; L2 /= ln; }
+    const SP = p.iShadowPacking, RP = p.iRimPacking, LT = 1 + SP + RP;
+    const logoLight = NM && p.imgLight === 'light';
     for (let i = 0; i < n; i++) {
       let t = p.imgInvert ? img.lum[i] : 1 - img.lum[i];       // tone that should carry marks
+      if (logoLight) {
+        // the logo's model, untouched by the photo tone controls (see imagePlan for the count)
+        const nx = NM.x[i], ny = NM.y[i], nz = NM.z[i];
+        const li = Math.min(1, Math.max(0, nx * L0 + ny * L1 + nz * L2)), sh = 1 - li, rim = 1 - Math.max(0, nz);
+        let tl = (1 + SP * sh * sh + RP * Math.pow(rim, 2.5)) / LT;
+        if (p.imgInvert) tl = 1 - tl + 1 / LT;
+        C[i] = tl * img.alpha[i];
+        continue;
+      }
+      if (NM) {
+        const nx = NM.x[i], ny = NM.y[i], nz = NM.z[i];
+        const li = Math.min(1, Math.max(0, nx * L0 + ny * L1 + nz * L2)), sh = 1 - li, rim = 1 - Math.max(0, nz);
+        let tl = (1 + SP * sh * sh + RP * Math.pow(rim, 2.5)) / LT;
+        if (p.imgInvert) tl = 1 - tl;
+        t = p.imgLight === 'mix' ? 0.5 * (t + tl) : tl;
+      }
       t = (t - 0.5) * c + 0.5 - b * 0.5;
       t = t <= cut ? 0 : (t - cut) / (1 - cut);
       if (t > 1) t = 1;
@@ -456,6 +487,22 @@ const Comput = (() => {
     }
   }
 
+  // average of the logo's density over its disc, for calibrating illustrations lit by Comput
+  const _ld = new Map();
+  function logoDensity(p) {
+    const key = [p.iLightX, p.iLightY, p.iShadowPacking, p.iRimPacking].join('|');
+    if (_ld.has(key)) return _ld.get(key);
+    let L0 = p.iLightX, L1 = p.iLightY, L2 = 1; const ln = Math.hypot(L0, L1, L2); L0 /= ln; L1 /= ln; L2 /= ln;
+    let a = 0, c = 0;
+    for (let j = 0; j < 120; j++) for (let i = 0; i < 120; i++) {
+      const x = -1 + (i + 0.5) / 60, y = -1 + (j + 0.5) / 60; if (x * x + y * y > 1) continue;
+      const nz = Math.sqrt(1 - x * x - y * y), li = Math.min(1, Math.max(0, x * L0 + y * L1 + nz * L2));
+      a += 1 + p.iShadowPacking * (1 - li) ** 2 + p.iRimPacking * Math.pow(1 - nz, 2.5); c++;
+    }
+    const v = { mean: a / c, lt: 1 + p.iShadowPacking + p.iRimPacking };
+    _ld.set(key, v); return v;
+  }
+
   // mark size at an output width; at other widths (responsive levels) it follows the growth rule
   const markAt = (p, size) => p.markPx * Math.pow(size / p.size, p.growth);
 
@@ -468,6 +515,10 @@ const Comput = (() => {
     let D = Math.max(0.3, markAt(p, size));
     const Aeff = Math.PI * (D / 2) * (D / 2) * 1.6;          // average 0/1 footprint
     let n = (p.ink * 0.72 * sum * cellArea) / Aeff;           // full tone ≈ 72% ink, with clumping in the darkest parts
+    if (img.normal && p.imgLight === 'light') {
+      // match the logo: it puts 0.835 / D² marks per px² where its density equals the disc average
+      n = (p.ink * logoDensity(p).lt * 0.835 * sum * cellArea) / (D * D * logoDensity(p).mean);
+    }
     if (n > p.maxMarks) { D *= Math.sqrt(n / p.maxMarks); n = p.maxMarks; }
     return { W, H, grain: D, n: Math.round(n), sum, inkArea: inkCells * cellArea, cellArea };
   }
@@ -512,12 +563,30 @@ const Comput = (() => {
     const { plan: pl, n: N, X, Y } = pos, { W, H } = pl, D = pl.grain, rad = D / 2;
     const lw = D * p.lineWeight, gap = (p.gap / 100) * D;
     const UX = new Float64Array(N), UY = new Float64Array(N), HALF = new Float64Array(N);
-    const F = p.imgDirection === 'flow' || p.imgDirection === 'across' ? flowField(img, p) : null;
-    const half = Math.max((D * p.lineLength) / 2 - lw / 2, 0);
+    const dir = p.imgDirection, NM = img.normal;
+    const surf = dir === 'burst' || dir === 'follow' || dir === 'rings';
+    const useN = NM && surf;
+    // surface modes need a normal map; without one they fall back to following the picture
+    const F = dir === 'flow' || dir === 'across' || (surf && !NM) ? flowField(img, p) : null;
+    const half0 = Math.max((D * p.lineLength) / 2 - lw / 2, 0);
+    let halfMax = 0;
     for (let i = 0; i < N; i++) {
-      let ux = 0, uy = 1;
-      if (F) {
-        const ci = Math.min(img.h - 1, (Y[i] / H * img.h) | 0) * img.w + Math.min(img.w - 1, (X[i] / W * img.w) | 0);
+      let ux = 0, uy = 1, squash = 1;
+      const ci = Math.min(img.h - 1, (Y[i] / H * img.h) | 0) * img.w + Math.min(img.w - 1, (X[i] / W * img.w) | 0);
+      if (useN) {
+        // directions from the surface itself, exactly as on the logo (normals are y-up)
+        const nx = NM.x[ci], ny = NM.y[ci];
+        if (dir === 'follow') {
+          const tx = -nx * ny, ty = 1 - ny * ny, n = Math.hypot(tx, ty) + 1e-9;
+          ux = tx / n; uy = -ty / n;
+        } else {
+          let rx = nx, ry = ny, n = Math.hypot(rx, ry);
+          if (n < 0.03) { const a = R() * 6.283185307179586; rx = Math.cos(a); ry = Math.sin(a); n = 1; }
+          ux = rx / n; uy = -ry / n;
+          if (dir === 'rings') { const t = ux; ux = -uy; uy = t; }
+        }
+        squash = 1 - p.foreshorten * (1 - Math.max(0, NM.z[ci]));   // shorter as the surface turns away
+      } else if (F) {
         let fx = F.fx[ci], fy = F.fy[ci];
         if (p.imgDirection === 'across') { const t = fx; fx = -fy; fy = t; }
         // where the picture has no clear structure, ease towards upright
@@ -530,9 +599,11 @@ const Comput = (() => {
         if (n > 1e-6) { ux = dx / n; uy = dy / n; }
       }
       const w = (R.normal() * p.wiggle * Math.PI) / 180, c = Math.cos(w), s = Math.sin(w);
-      UX[i] = ux * c - uy * s; UY[i] = ux * s + uy * c; HALF[i] = half;
+      UX[i] = ux * c - uy * s; UY[i] = ux * s + uy * c;
+      HALF[i] = useN ? Math.max((D * p.lineLength * squash) / 2 - lw / 2, 0) : half0;
+      if (HALF[i] > halfMax) halfMax = HALF[i];
     }
-    const out = await assign({ N, PX: X, PY: Y, UX, UY, HALF, halfMax: half, D, lw, rad, gap, W, H }, p, R, maybeYield);
+    const out = await assign({ N, PX: X, PY: Y, UX, UY, HALF, halfMax, D, lw, rad, gap, W, H }, p, R, maybeYield);
     return {
       kind: 'image', size: W, width: W, height: H, plan: pl, grain: D, rad, lw, n: N, x: X, y: Y, ux: UX, uy: UY, half: HALF,
       ...out, draft: pos.draft, ms: Date.now() - t0 + (pos.fromCache ? 0 : pos.ms),
@@ -543,6 +614,7 @@ const Comput = (() => {
   // the top left, with cast shadows and a soft ground shadow. Transparent background.
   function sampleImage(w = 480, h = 640) {
     const lum = new Float32Array(w * h), alpha = new Float32Array(w * h);
+    const NX = new Float32Array(w * h), NY = new Float32Array(w * h), NZ = new Float32Array(w * h), NA = new Float32Array(w * h);
     const S = [[0.02, -0.38, 0, 0.36], [0.1, 0.12, 0, 0.21], [0.03, 0.43, 0, 0.13]];
     let L = [-0.55, 0.6, 0.58]; const ln = Math.hypot(...L); L = L.map((v) => v / ln);
     const hitSphere = (ox, oy, oz, dx, dy, dz, sp) => {
@@ -557,6 +629,7 @@ const Comput = (() => {
       for (const sp of S) { const dx = x - sp[0], dy = y - sp[1], q = sp[3] * sp[3] - dx * dx - dy * dy; if (q > 0 && sp[2] + Math.sqrt(q) > bz) { bz = sp[2] + Math.sqrt(q); best = sp; } }
       if (best) {
         const nx = (x - best[0]) / best[3], ny = (y - best[1]) / best[3], nz = (bz - best[2]) / best[3];
+        NX[k] = nx; NY[k] = ny; NZ[k] = nz; NA[k] = 1;
         let d = Math.max(0, nx * L[0] + ny * L[1] + nz * L[2]);
         for (const sp of S) if (sp !== best) { const t = hitSphere(x, y, bz, L[0], L[1], L[2], sp); if (t > 1e-4 && t < Infinity) { d *= 0.15; break; } }
         // contact darkening where spheres meet
@@ -569,7 +642,73 @@ const Comput = (() => {
         if (r < 1) { lum[k] = 0; alpha[k] = 0.85 * Math.pow(1 - r, 1.5); }
       }
     }
-    return { id: 'sample-cairn', name: 'Sample: cairn', w, h, lum, alpha };
+    return {
+      id: 'sample-cairn', name: 'Sample: cairn', w, h, lum, alpha,
+      normals: { id: 'sample-cairn-normals', name: 'Sample normals', w, h, x: NX, y: NY, z: NZ, alpha: NA },
+    };
+  }
+
+  // Inflate: give a flat cut-out shape a rounded 3D surface, like blowing up a balloon.
+  // Distance to the outline -> a height (a circle becomes an exact sphere) -> normals.
+  // roundness 1 = fully domed, lower = flatter top with rounded edges.
+  function inflate(render, roundness = 1) {
+    const w = render.w, h = render.h, n = w * h, mask = new Uint8Array(n);
+    let hasAlpha = false; for (let i = 0; i < n; i++) if (render.alpha[i] < 0.99) { hasAlpha = true; break; }
+    for (let i = 0; i < n; i++) mask[i] = hasAlpha ? render.alpha[i] > 0.5 : render.lum[i] < 0.9 && render.alpha[i] > 0.5;
+    const dt = edt(mask, w, h);
+    let dmax = 0; for (let i = 0; i < n; i++) if (dt[i] > dmax) dmax = dt[i];
+    const Rk = Math.max(1, Math.max(0.05, Math.min(1, roundness)) * dmax), H = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const d = Math.min(dt[i], Rk); H[i] = mask[i] ? Math.sqrt(d * (2 * Rk - d)) : 0; }
+    const r = Math.max(1, Math.round(0.03 * dmax)); boxBlur(H, w, h, r);
+    const x = new Float32Array(n), y = new Float32Array(n), z = new Float32Array(n), alpha = new Float32Array(n);
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+      const k = j * w + i; if (!mask[k]) continue;
+      const gx = (H[j * w + Math.min(w - 1, i + 1)] - H[j * w + Math.max(0, i - 1)]) / 2;
+      const gyUp = (H[Math.max(0, j - 1) * w + i] - H[Math.min(h - 1, j + 1) * w + i]) / 2;
+      const l = Math.hypot(gx, gyUp, 1);
+      x[k] = -gx / l; y[k] = -gyUp / l; z[k] = 1 / l; alpha[k] = hasAlpha ? render.alpha[k] : 1;
+    }
+    return { id: render.id + '|inflate|' + roundness, name: 'Inflated outline', w, h, x, y, z, alpha };
+  }
+  // exact Euclidean distance (px) from each inside pixel to the nearest outside pixel
+  function edt(mask, w, h) {
+    const INF = 1e20, f = new Float64Array(Math.max(w, h)), d = new Float64Array(Math.max(w, h));
+    const v = new Int32Array(Math.max(w, h)), z = new Float64Array(Math.max(w, h) + 1), D = new Float64Array(w * h);
+    const pass = (len) => {
+      let k = 0; v[0] = 0; z[0] = -INF; z[1] = INF;
+      for (let q = 1; q < len; q++) {
+        let s;
+        while (true) { s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]); if (s <= z[k] && k > 0) k--; else break; }
+        if (s <= z[k]) { v[0] = q; z[0] = -INF; z[1] = INF; k = 0; continue; }
+        k++; v[k] = q; z[k] = s; z[k + 1] = INF;
+      }
+      k = 0;
+      for (let q = 0; q < len; q++) { while (z[k + 1] < q) k++; d[q] = (q - v[k]) * (q - v[k]) + f[v[k]]; }
+    };
+    for (let i = 0; i < w; i++) { for (let j = 0; j < h; j++) f[j] = mask[j * w + i] ? INF : 0; pass(h); for (let j = 0; j < h; j++) D[j * w + i] = d[j]; }
+    for (let j = 0; j < h; j++) { for (let i = 0; i < w; i++) f[i] = D[j * w + i]; pass(w); for (let i = 0; i < w; i++) D[j * w + i] = Math.sqrt(d[i]); }
+    return D;
+  }
+
+  // Put a render and a normal map together. nmap = { id, w, h, x, y, z (y-up), alpha }.
+  // 'light' uses the normal map alone (its size and outline); otherwise the render leads and
+  // the normals are stretched to match it.
+  function combine(render, nmap, mode, flipY) {
+    if (!nmap) return render;
+    const light = mode === 'light', base = light ? nmap : render, w = base.w, h = base.h, n = w * h;
+    const x = new Float32Array(n), y = new Float32Array(n), z = new Float32Array(n);
+    const sx = nmap.w / w, sy = nmap.h / h, fy = flipY ? -1 : 1;
+    for (let j = 0; j < h; j++) {
+      const row = Math.min(nmap.h - 1, ((j + 0.5) * sy) | 0) * nmap.w;
+      for (let i = 0; i < w; i++) {
+        const k = row + Math.min(nmap.w - 1, ((i + 0.5) * sx) | 0), o = j * w + i;
+        x[o] = nmap.x[k]; y[o] = fy * nmap.y[k]; z[o] = nmap.z[k];
+      }
+    }
+    return {
+      id: (light ? '' : render.id) + '|' + nmap.id + '|' + mode + '|' + (flipY ? 1 : 0), name: render.name, w, h,
+      lum: light ? new Float32Array(n).fill(0.5) : render.lum, alpha: light ? nmap.alpha : render.alpha, normal: { x, y, z },
+    };
   }
 
   // Full run. opt.cache: a Map reused between calls, so changing only the 0s and 1s
@@ -658,6 +797,6 @@ const Comput = (() => {
       `<style>${css}</style>` + bgRect(p, V, VH) + groups + `</svg>`;
   }
 
-  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, plan, imagePlan, sampleImage, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
+  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, plan, imagePlan, sampleImage, combine, inflate, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
 })();
 if (typeof module !== 'undefined') module.exports = Comput;
