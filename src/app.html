@@ -114,7 +114,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
 .group-t { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--mute); padding-top: 12px; border-top: 1px solid var(--rule) }
 
 /* stage */
-.stage { background: var(--panel); border-radius: 22px; display: flex; flex-direction: column; min-height: 0; overflow: hidden }
+.stage { background: var(--panel); border-radius: 22px; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden }
 .stage-top { display: flex; align-items: center; gap: 10px; padding: 12px 14px 12px 18px; border-bottom: 1px solid var(--rule); flex-wrap: wrap }
 .stage-top #modeSeg { min-width: 230px }
 .status { margin-left: auto; display: flex; align-items: center; gap: 8px }
@@ -145,6 +145,8 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
 .toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--panel); padding: 9px 16px; border-radius: 999px; font-size: 12px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 5 }
 .toast.on { opacity: 1 }
 
+textarea.ask { width: 100%; min-height: 76px; resize: vertical; border: 1px solid var(--ink); border-radius: 16px; background: transparent; padding: 10px 12px; font: inherit; font-size: 13px; color: inherit }
+textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px }
 .rsp-ctl { display: flex; gap: 10px 18px; align-items: center; padding: 10px 14px 10px 18px; border-bottom: 1px solid var(--rule); flex-wrap: wrap }
 .rsp-ctl .w { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 220px }
 .rsp-ctl input[type=range] { flex: 1 }
@@ -152,7 +154,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
 @media (max-width: 900px) {
   html, body { height: auto }
   .app { height: auto }
-  .main { grid-template-columns: 1fr }
+  .main { grid-template-columns: minmax(0, 1fr) }
   .stage { order: -1 }
   .view { min-height: 78vw; max-height: 80vh }
   .controls { overflow: visible; padding-right: 0 }
@@ -182,6 +184,15 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
         <p class="sub" data-src="sphere">Bigger sizes get more, smaller 0s and 1s, so the texture holds at any scale.</p>
       </section>
 
+      <section class="mod">
+        <div class="mod-h"><span class="lab">Look</span><span class="lab mute">Colours, marks, light</span></div>
+        <div class="chips" id="lookChips"></div>
+        <div class="pair"><button class="btn ghost sm" id="saveLook">Save this look</button><button class="btn ghost sm" id="exportLib">Export for the team</button></div>
+        <button class="btn ghost sm" id="importLib">Import looks and scenes</button>
+        <input type="file" id="libFile" accept="application/json,.json" hidden>
+        <p class="sub" style="margin:0">Saved looks and scenes stay in this browser. Export them as one file to share, then import it on another computer.</p>
+      </section>
+
       <section class="mod" data-src="scene">
         <div class="mod-h"><span class="lab">Scene</span><span class="lab mute">Drag shapes to move them</span></div>
         <div class="row"><label>Start from</label><span></span></div>
@@ -193,6 +204,12 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
         <p class="sub" id="shapeHint" style="margin:0"></p>
         <div class="rows" id="shapeRows"></div>
         <div class="pair" id="shapeBtns"><button class="btn ghost sm" id="dupShape">Duplicate</button><button class="btn ghost sm" id="delShape">Remove</button></div>
+        <div class="group-t">Describe a scene</div>
+        <div id="aiBox" hidden>
+          <textarea class="ask" id="aiText" aria-label="Describe a scene" placeholder="A tall pill leaning against a big ring, lit from the top right"></textarea>
+          <div class="pair" style="margin-top:8px"><button class="btn sm" id="aiGo">Build it</button><button class="btn ghost sm" id="aiStop" disabled>Stop</button></div>
+        </div>
+        <p class="sub" id="aiNote" style="margin:0">Available when Comput is opened in Claude. Claude builds the scene from the shapes above.</p>
       </section>
 
       <section class="mod" data-src="scene">
@@ -296,6 +313,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
         <div class="seg" id="modeSeg" role="group" aria-label="Mode">
           <button data-v="single" aria-pressed="true">Single size</button>
           <button data-v="responsive" aria-pressed="false">Responsive</button>
+          <button data-v="motion" aria-pressed="false">Motion</button>
         </div>
         <div class="seg" id="viewSeg" role="group" aria-label="Zoom" style="min-width:120px">
           <button data-v="fit" aria-pressed="true">Fit</button>
@@ -309,6 +327,12 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
         <div class="chips" id="lodChips"></div>
         <div class="w"><span class="lab">Draw at</span><input type="range" id="rspW" min="0" max="1000" step="1" aria-label="Width the responsive SVG is drawn at"><output class="num" id="rspWOut" style="min-width:5em;text-align:right">512 PX</output></div>
       </div>
+      <div class="rsp-ctl" id="motCtl" hidden>
+        <div class="seg" id="motSeg" role="group" aria-label="Animation"></div>
+        <div class="w"><span class="lab">Length</span><input type="range" id="motSec" min="1" max="8" step="0.5" aria-label="Length in seconds"><output class="num" id="motSecOut" style="min-width:3.5em;text-align:right">3 S</output></div>
+        <div class="seg" id="fpsSeg" role="group" aria-label="Frames per second" style="min-width:110px"><button data-v="24" aria-pressed="true">24 fps</button><button data-v="30" aria-pressed="false">30</button></div>
+        <button class="btn sm" id="motGo">Render</button>
+      </div>
       <div class="bar"><i id="bar"></i></div>
       <div class="view" id="view">
         <div class="board" id="board"><span class="tag lab" id="boardTag"></span><canvas id="cv"></canvas><img id="rspImg" alt="Responsive sphere logo preview" hidden></div>
@@ -321,6 +345,12 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
             <button data-v="compact" aria-pressed="false">For web</button>
           </div>
           <button class="btn" id="export">Export SVG</button>
+        </div>
+        <div class="actions" id="actMot" hidden>
+          <span class="note" id="motNote">Render to preview the animation, then export it.</span>
+          <button class="btn ghost" id="expFrames" disabled>SVG frames (zip)</button>
+          <button class="btn ghost" id="expAnim" disabled>Animated SVG</button>
+          <button class="btn" id="expVideo" disabled>Export video</button>
         </div>
         <div class="actions" id="actRsp" hidden>
           <span class="note">One file with several detail levels. It picks the right one for the size it is shown at, when used as an &lt;img&gt;, &lt;object&gt; or CSS background.</span>
@@ -805,6 +835,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   const cache = new Map();
   let job = 0, single = null, rspUrl = null, rspSvgText = '', rspResults = [], timer = 0, finalDue = false;
   function changed(k, live = false) {
+    if (MOT.frames || MOT.playing) { stopMotion(true); syncMotion(); }
     save(); if (k !== 'lightX' && k !== 'iLightX') syncAll();
     if (k === 'color' || k === 'background') { if (single) draw(single); if (rspResults.length) composeRsp(); return; }
     const slow = POS.has(k) || TONE.has(k) || ['all', 'size', 'source', 'image', 'markPx', 'ink', 'normalSource', 'inflateRound', 'normalFlipY', 'scene'].includes(k);
@@ -823,7 +854,8 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
     const my = ++job, cancelled = () => my !== job;
     if (!draft) finalDue = false;
     try {
-      const sizes = ui.mode === 'single' ? [p.size] : ui.lods.slice().sort((a, b) => a - b), out = [];
+      const still = ui.mode !== 'responsive';
+      const sizes = still ? [p.size] : ui.lods.slice().sort((a, b) => a - b), out = [];
       const t0 = performance.now();
       if (p.source === 'scene' && !SC().shapes.length) {
         single = null; rspResults = []; const cv = $('cv'); cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
@@ -833,7 +865,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
       const image = await sourceImage(draft, cancelled);
       if (cancelled()) return;
       for (let i = 0; i < sizes.length; i++) {
-        const label = draft ? 'Preview' : ui.mode === 'single' ? 'Computing' : `Level ${i + 1}/${sizes.length}`;
+        const label = draft ? 'Preview' : still ? 'Computing' : `Level ${i + 1}/${sizes.length}`;
         const r = await Comput.generate(p, sizes[i], {
           cache, draft, cancelled, image,
           onProgress: (f) => { if (performance.now() - t0 > 120) busy(true, `${label} · ${Math.round(((i + f) / sizes.length) * 100)}%`, (i + f) / sizes.length); },
@@ -841,7 +873,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
         if (cancelled()) return;
         out.push(r);
       }
-      if (ui.mode === 'single') { single = out[0]; draw(single); } else { rspResults = out; composeRsp(); }
+      if (still) { single = out[0]; if (!MOT.playing) draw(single); } else { rspResults = out; composeRsp(); }
       reads();
       busy(false, draft ? 'Preview · full detail on release' : 'Ready');
       if (draft && finalDue && !dragging()) schedule(false, 0);
@@ -867,10 +899,24 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   // ---------- drawing ----------
   function viewScale(W, H) {
     if (ui.view === 'one') return 1;
-    const v = $('view'), w = v.clientWidth - 44, h = v.clientHeight - 60;
+    // measure the stage, not the view, so a big canvas can never widen its own box
+    const v = $('view'), w = $('stage').clientWidth - 44, h = v.clientHeight - 60;
     return Math.max(0.02, Math.min(1, w / W, (h > 80 ? h : w * 1.5) / H));
   }
-  function draw(r) {
+  // r: a result, or a compact motion frame (hx/hy instead of ux/uy/half); vis: optional per-mark visibility
+  function paintMarks(ctx, r, vis) {
+    const { x, y, shape, n, rad } = r, hxA = r.hx, hyA = r.hy;
+    ctx.fillStyle = p.color; ctx.beginPath();
+    for (let i = 0; i < n; i++) if (shape[i] === 0 && (!vis || vis[i])) { ctx.moveTo(x[i] + rad, y[i]); ctx.arc(x[i], y[i], rad, 0, 6.2832); }
+    ctx.fill();
+    ctx.strokeStyle = p.color; ctx.lineWidth = r.lw; ctx.lineCap = 'round'; ctx.beginPath();
+    for (let i = 0; i < n; i++) if (shape[i] === 1 && (!vis || vis[i])) {
+      const hx = hxA ? hxA[i] : r.ux[i] * r.half[i], hy = hyA ? hyA[i] : r.uy[i] * r.half[i];
+      ctx.moveTo(x[i] - hx, y[i] - hy); ctx.lineTo(x[i] + hx, y[i] + hy);
+    }
+    ctx.stroke();
+  }
+  function draw(r, vis) {
     const W = r.width, H = r.height;
     const cv = $('cv'), vs = viewScale(W, H), cw = W * vs, ch = H * vs;
     const dpr = Math.min(window.devicePixelRatio || 1, 6000 / Math.max(cw, ch));
@@ -881,14 +927,8 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, pw, ph);
     if (p.background !== 'none') { ctx.fillStyle = p.background; ctx.fillRect(0, 0, pw, ph); }
     ctx.setTransform(k, 0, 0, k, 0, 0);
-    const { x, y, ux, uy, half, shape, n, rad } = r;
-    ctx.fillStyle = p.color; ctx.beginPath();
-    for (let i = 0; i < n; i++) if (shape[i] === 0) { ctx.moveTo(x[i] + rad, y[i]); ctx.arc(x[i], y[i], rad, 0, 6.2832); }
-    ctx.fill();
-    ctx.strokeStyle = p.color; ctx.lineWidth = r.lw; ctx.lineCap = 'round'; ctx.beginPath();
-    for (let i = 0; i < n; i++) if (shape[i] === 1) { const hx = ux[i] * half[i], hy = uy[i] * half[i]; ctx.moveTo(x[i] - hx, y[i] - hy); ctx.lineTo(x[i] + hx, y[i] + hy); }
-    ctx.stroke();
-    if (p.source === 'scene' && SEL() && ui.mode === 'single') {
+    paintMarks(ctx, r, vis);
+    if (p.source === 'scene' && SEL() && ui.mode === 'single' && !vis && !r.hx) {
       const pr = Comput.projectShape(SC(), SEL(), W, H);
       ctx.save(); ctx.setLineDash([5 / k, 4 / k]); ctx.lineWidth = 1.5 / k; ctx.strokeStyle = '#7a7f78';
       ctx.beginPath(); ctx.arc(pr.px, pr.py, pr.r * 1.15, 0, 6.2832); ctx.stroke();
@@ -913,7 +953,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
 
   function layout() {
     $('view').classList.toggle('one', ui.view === 'one');
-    if (ui.mode === 'single') { if (single) draw(single); return; }
+    if (ui.mode !== 'responsive') { if (single && !MOT.playing) draw(single); return; }
     const w = ui.rspW; $('rspW').value = fromW(w); $('rspWOut').textContent = `${w} PX`;
     const img = $('rspImg'), r0 = rspResults[0];
     img.style.width = w + 'px'; img.style.height = (r0 ? Math.round((w * r0.height) / r0.width) : w) + 'px';
@@ -926,7 +966,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   function reads() {
     const el = $('reads');
     const cell = (k, v) => `<div><span class="lab mute">${k}</span><span class="v">${v}</span></div>`;
-    if (ui.mode === 'single') {
+    if (ui.mode !== 'responsive') {
       if (!single) { el.innerHTML = ''; return; }
       const r = single;
       el.innerHTML = cell('Size', r.width === r.height ? `${r.width} px` : `${r.width} × ${r.height}`) + cell('0s', fmtN(r.circles)) + cell('1s', fmtN(r.lines)) +
@@ -941,23 +981,25 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   }
 
   function applyMode() {
-    const r = ui.mode === 'responsive';
-    $('rspCtl').hidden = !r; $('actRsp').hidden = !r; $('actSingle').hidden = r;
+    const r = ui.mode === 'responsive', m = ui.mode === 'motion';
+    $('rspCtl').hidden = !r; $('actRsp').hidden = !r; $('actSingle').hidden = r || m;
+    $('motCtl').hidden = $('actMot').hidden = !m;
     $('cv').hidden = r; $('rspImg').hidden = !r; $('viewSeg').hidden = r;
+    if (!m) stopMotion(true); else syncMotion();
     syncAll(); layout(); reads(); schedule(false, 0);
   }
 
   // ---------- export ----------
   const downloadsP = window.claude && window.claude.use ? window.claude.use('downloads').catch(() => null) : Promise.resolve(null);
-  async function saveFile(filename, text) {
-    const dl = await downloadsP;
+  async function saveFile(filename, text, type = 'image/svg+xml') {
+    const dl = await downloadsP, blob = text instanceof Blob ? text : new Blob([text], { type });
     if (dl) {
-      try { await dl.save({ filename, data: new Blob([text], { type: 'image/svg+xml' }) }); toast(`Saved ${filename}`); }
+      try { await dl.save({ filename, data: blob }); toast(`Saved ${filename}`); }
       catch (e) { if (e && e.code !== 'declined') toast(e.code === 'unavailable' ? 'Saving is not available in this view' : 'Could not save the file'); }
       return;
     }
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([text], { type: 'image/svg+xml' })); a.download = filename;
+    a.href = URL.createObjectURL(blob); a.download = filename;
     document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
     toast(`Saved ${filename}`);
   }
@@ -979,6 +1021,282 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
     saveFile(`comput-${p.source === 'sphere' ? 'sphere' : p.source === 'scene' ? 'scene' : 'illustration'}-responsive-${rs.map((r) => r.size).join('-')}-seed${p.seed}.svg`, Comput.responsiveSvg(rs, p));
   });
 
+  // ================= looks =================
+  // A look is the shared style: colours, marks and the illustration light. It never touches the
+  // logo's own geometry, light or diffusion.
+  const LOOK_KEYS = ['color', 'background', 'markPx', 'ink', 'lineShare', 'lineLength', 'lineWeight', 'wiggle', 'gap', 'organic',
+    'clustering', 'foreshorten', 'imgEdge', 'imgFloor', 'imgContrast', 'imgBrightness', 'imgGamma', 'imgCutoff', 'imgInvert',
+    'iLightX', 'iLightY', 'iShadowPacking', 'iRimPacking', 'growth'];
+  const LOOKS = [
+    { name: 'Ink', look: { color: '#111111', background: 'none', imgInvert: false, markPx: 2.5, ink: 1, lineShare: 0.6, lineLength: 1.9 } },
+    { name: 'Paper', look: { color: '#121312', background: '#ecedea', imgInvert: false } },
+    { name: 'Night', look: { color: '#ffffff', background: '#0a0a0a', imgInvert: true } },
+    { name: 'Fine', look: { markPx: 1.6, ink: 1.05, lineShare: 0.55, lineLength: 1.9 } },
+    { name: 'Bold', look: { markPx: 4, ink: 0.95, lineShare: 0.7, lineLength: 2.1 } },
+  ];
+  const LOOKS_KEY = 'comput.looks';
+  const savedLooks = () => { try { return JSON.parse(localStorage.getItem(LOOKS_KEY) || '[]'); } catch (e) { return []; } };
+  const putLooks = (l) => { try { localStorage.setItem(LOOKS_KEY, JSON.stringify(l)); } catch (e) { toast('Could not save in this browser'); } };
+  const escHtml = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  function drawLooks() {
+    const mine = savedLooks();
+    $('lookChips').innerHTML = LOOKS.map((l, i) => `<button class="chip" data-b="${i}">${l.name}</button>`).join('') +
+      mine.map((l, i) => `<button class="chip" data-m="${i}">${escHtml(l.name)}<span class="x" data-del="${i}" aria-label="Delete ${escHtml(l.name)}">×</span></button>`).join('');
+  }
+  function cleanLook(o) {
+    const out = {};
+    for (const k of LOOK_KEYS) {
+      if (!(k in (o || {}))) continue;
+      const v = o[k], d = D[k];
+      if (typeof d === 'number' && Number.isFinite(+v)) out[k] = +v;
+      else if (typeof d === 'boolean') out[k] = !!v;
+      else if (k === 'color' && HEX.test(v)) out[k] = v;
+      else if (k === 'background' && (v === 'none' || HEX.test(v))) out[k] = v;
+    }
+    return out;
+  }
+  $('lookChips').addEventListener('click', (e) => {
+    const del = e.target.closest('[data-del]'), mine = savedLooks();
+    if (del) { mine.splice(+del.dataset.del, 1); putLooks(mine); drawLooks(); return; }
+    const b = e.target.closest('button'); if (!b) return;
+    const l = b.dataset.b !== undefined ? LOOKS[+b.dataset.b] : mine[+b.dataset.m]; if (!l) return;
+    Object.assign(p, cleanLook(l.look)); if (p.background !== 'none') lastBg = p.background;
+    changed('all'); toast(`Look: ${l.name}`);
+  });
+  $('saveLook').addEventListener('click', () => {
+    const mine = savedLooks(), look = {}; for (const k of LOOK_KEYS) look[k] = p[k];
+    const name = `Look ${String(mine.length + 1).padStart(2, '0')}`; mine.push({ name, look }); putLooks(mine.slice(-24)); drawLooks(); toast(`Saved ${name}`);
+  });
+  $('exportLib').addEventListener('click', () => {
+    const lib = { comput: 'library', version: 1, looks: savedLooks(), scenes: savedList() };
+    if (!lib.looks.length && !lib.scenes.length) return toast('Save a look or a scene first');
+    saveFile('comput-library.json', JSON.stringify(lib, null, 2), 'application/json');
+  });
+  $('importLib').addEventListener('click', () => $('libFile').click());
+  $('libFile').addEventListener('change', async () => {
+    const f = $('libFile').files[0]; $('libFile').value = ''; if (!f) return;
+    try {
+      const lib = JSON.parse(await f.text());
+      if (!lib || lib.comput !== 'library') throw new Error('not a Comput library');
+      const looks = (lib.looks || []).filter((l) => l && l.look).map((l) => ({ name: String(l.name || 'Look').slice(0, 40), look: cleanLook(l.look) }));
+      const scenes = (lib.scenes || []).filter((s0) => s0 && s0.scene && Array.isArray(s0.scene.shapes))
+        .map((s0) => ({ name: String(s0.name || 'Scene').slice(0, 40), scene: cleanScene(s0.scene), light: cleanLook(s0.light || {}) }));
+      putLooks(savedLooks().concat(looks).slice(-48)); putSaved(savedList().concat(scenes).slice(-48));
+      drawLooks(); drawSaved(); toast(`Imported ${looks.length} looks and ${scenes.length} scenes`);
+    } catch (e) { toast('That file is not a Comput library'); }
+  });
+
+  // ================= describe a scene (Claude, in the artifact only) =================
+  const numIn = (v, a, b, d) => { v = +v; return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : d; };
+  function cleanScene(d) {
+    const shapes = (Array.isArray(d.shapes) ? d.shapes : []).filter((x) => x && Comput.SHAPES[x.type]).slice(0, 12).map((x) => ({
+      type: x.type, x: numIn(x.x, -2, 2, 0), y: numIn(x.y, -1.2, 1.2, 0), z: numIn(x.z, -1, 1, 0), size: numIn(x.size, 0.06, 1.2, 0.35),
+      q: numIn(x.q, 0, 1, 0.5), rx: numIn(x.rx, -180, 180, 0), ry: numIn(x.ry, -180, 180, 0), rz: numIn(x.rz, -180, 180, 0),
+    }));
+    return { aspect: FRAMES.includes(d.aspect) ? d.aspect : '3:2', melt: numIn(d.melt, 0, 0.4, 0), ground: numIn(d.ground, 0, 1, 0.6),
+      yaw: numIn(d.yaw, -180, 180, 0), pitch: numIn(d.pitch, 0, 60, 12), shapes };
+  }
+  let sampleFn = null, aiCtl = null;
+  (window.claude && window.claude.use ? window.claude.use('sample').catch(() => null) : Promise.resolve(null)).then((fn) => {
+    sampleFn = fn; $('aiBox').hidden = !fn;
+    if (fn) $('aiNote').textContent = 'Claude builds the scene from the shapes above, on your Claude account. You can then edit it.';
+  });
+  const AI_GUIDE = `You compose abstract 3D scenes for a brand illustration tool. Reply with only JSON in this shape:
+{"aspect":"1:1|4:5|3:2|16:9","melt":0,"ground":0.6,"yaw":0,"pitch":12,"light":{"x":-0.3,"y":0.5},
+ "shapes":[{"type":"sphere|cube|cylinder|ring|capsule","x":0,"y":0,"z":0,"size":0.35,"q":0.5,"rx":0,"ry":0,"rz":0}]}
+Space: y is up. The frame is 2 units tall (y from -1 to 1) and 2*aspect wide (x from -aspect to aspect). z is depth, towards the camera is positive, keep it within -1..1. Keep every shape fully inside the frame with a margin.
+Shapes, all scaled by size: sphere radius = size. cube: half-width 0.8*size, half-height 0.8*size*(0.25+1.5q) (q 0.5 = cube). cylinder: vertical, radius 0.8*size, half-height 0.8*size*(0.2+1.6q). ring: a torus lying flat (axis vertical), radius 0.8*size, tube 0.08+0.4q (times size); rx 90 stands it up facing the camera. capsule: vertical pill, radius 0.42*size, half-length 1.4*q*size; rz tilts it in the picture plane.
+rx, ry, rz are degrees. melt 0-0.4 blends nearby shapes into soft blobs. ground 0-1 is the strength of the shadow on the ground. yaw turns the camera (degrees), pitch 0-60 tilts it to look down. light x,y (-1..1) is where the light comes from on screen.
+Use at most 8 shapes. Compose with clear negative space and simple, bold forms. Shapes resting on each other should touch, not float or overlap far.`;
+  $('aiGo').addEventListener('click', async () => {
+    const want = $('aiText').value.trim(); if (!sampleFn) return; if (!want) return toast('Describe the scene first');
+    aiCtl = new AbortController(); $('aiGo').disabled = true; $('aiStop').disabled = false; $('aiNote').textContent = 'Thinking…';
+    try {
+      const prompt = `${AI_GUIDE}\n\nThe current scene, which you may edit or replace:\n${JSON.stringify({ ...SC(), light: { x: p.iLightX, y: p.iLightY } })}\n\nWhat the designer wants: ${want}`;
+      const d = await sampleFn.json(prompt, { signal: aiCtl.signal });
+      const sc = cleanScene(d || {});
+      if (!sc.shapes.length) throw { code: 'empty' };
+      p.scene = sc; if (d.light) { p.iLightX = numIn(d.light.x, -1, 1, p.iLightX); p.iLightY = numIn(d.light.y, -1, 1, p.iLightY); }
+      ui.sel = 0; changed('scene'); $('aiNote').textContent = 'Done. Drag the shapes or describe a change.';
+    } catch (e) {
+      const c = e && e.code;
+      if (c === 'not_granted' || c === 'sampling_disabled' || c === 'capability_disabled' || c === 'not_declared') { $('aiBox').hidden = true; $('aiNote').textContent = 'Claude is not available for this artifact.'; }
+      else $('aiNote').textContent = { cancelled: 'Stopped.', rate_limited: 'Too many requests. Try again in a minute.', invalid_json: 'Claude did not return a scene. Try rephrasing.',
+        empty: 'Claude did not return any shapes. Try rephrasing.', refused: 'Claude declined that request. Try rephrasing.' }[c] || 'Something went wrong. Try again.';
+    } finally { $('aiGo').disabled = false; $('aiStop').disabled = true; aiCtl = null; }
+  });
+  $('aiStop').addEventListener('click', () => aiCtl && aiCtl.abort());
+
+  // ================= motion =================
+  // Build up and Diffusion compute the picture once and reveal or hide marks per frame.
+  // Light orbit and Turn recompute every frame, starting from the last frame's marks so they drift
+  // smoothly instead of jumping.
+  const MOTIONS = {
+    build: { label: 'Build up', ok: () => true },
+    light: { label: 'Light orbit', ok: () => p.source !== 'image' || p.normalSource !== 'none' },
+    diffuse: { label: 'Diffusion', ok: () => p.source === 'sphere' },
+    turn: { label: 'Turn', ok: () => p.source === 'scene' },
+  };
+  ui.mot = { type: 'build', seconds: 3, fps: 24, ...(ui.mot || {}) };
+  const MOT = { frames: null, playing: false, raf: 0, job: 0 };
+  $('motSeg').innerHTML = Object.entries(MOTIONS).map(([k, v]) => `<button data-v="${k}" aria-pressed="false">${v.label}</button>`).join('');
+  $('motSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b || b.disabled) return; ui.mot.type = b.dataset.v; save(); stopMotion(true); syncMotion(); });
+  $('motSec').addEventListener('input', () => { ui.mot.seconds = +$('motSec').value; save(); stopMotion(true); syncMotion(); });
+  $('fpsSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; ui.mot.fps = +b.dataset.v; save(); stopMotion(true); syncMotion(); });
+  function syncMotion() {
+    if (!MOTIONS[ui.mot.type].ok()) ui.mot.type = 'build';
+    $('motSeg').querySelectorAll('button').forEach((b) => { b.disabled = !MOTIONS[b.dataset.v].ok(); b.hidden = b.disabled; b.setAttribute('aria-pressed', b.dataset.v === ui.mot.type); });
+    $('fpsSeg').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', +b.dataset.v === ui.mot.fps));
+    $('motSec').value = ui.mot.seconds; $('motSecOut').textContent = `${ui.mot.seconds} S`;
+    const ready = !!MOT.frames;
+    $('expVideo').disabled = $('expFrames').disabled = !ready;
+    $('expAnim').hidden = ui.mot.type !== 'build'; $('expAnim').disabled = !ready;
+    if (!ready) $('motNote').textContent = ui.mot.type === 'light' || ui.mot.type === 'turn'
+      ? 'Render to preview. Each frame is computed, so this takes a little while.' : 'Render to preview the animation, then export it.';
+  }
+  function stopMotion(clear) {
+    MOT.job++; MOT.playing = false; cancelAnimationFrame(MOT.raf);
+    if (clear) MOT.frames = null;
+    if (single && ui.mode !== 'responsive') draw(single);
+  }
+  const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+  const ONES = (n) => new Float32Array(n).fill(1);
+  function compact(r) {
+    const n = r.n, hx = new Float32Array(n), hy = new Float32Array(n);
+    for (let i = 0; i < n; i++) { hx[i] = r.ux[i] * r.half[i]; hy[i] = r.uy[i] * r.half[i]; }
+    return { x: Float32Array.from(r.x), y: Float32Array.from(r.y), hx, hy, shape: r.shape, n, rad: r.rad, lw: r.lw, grain: r.grain,
+      width: r.width, height: r.height, kind: r.kind, circles: r.circles, lines: r.lines };
+  }
+  // frame i of the current animation: { r, vis }
+  function frameAt(i) {
+    const M = MOT.frames, t = i / M.count;
+    if (M.mode === 'stack') return { r: M.list[i] };
+    const r = M.base, n = r.n, vis = new Uint8Array(n);
+    if (M.type === 'build') {
+      const e = ease(Math.min(1, (i / Math.max(1, M.count - 1)) / 0.8));
+      for (let j = 0; j < n; j++) vis[j] = M.u[j] < e ? 1 : 0;
+    } else {
+      const tri = t < 0.5 ? 2 * t : 2 - 2 * t, c = 100 + (Math.min(99, p.centre) - 100) * ease(tri);
+      const keep = Comput.diffusionKeep(p, c), S = r.width, R0 = 0.44 * S;
+      for (let j = 0; j < n; j++) vis[j] = M.u[j] < keep((r.x[j] - S / 2) / R0, -(r.y[j] - S / 2) / R0) ? 1 : 0;
+    }
+    return { r, vis };
+  }
+  async function renderMotion() {
+    const my = ++MOT.job, gone = () => my !== MOT.job;
+    stopMotion(false); MOT.job = my; MOT.frames = null; syncMotion();
+    const type = ui.mot.type, fps = ui.mot.fps, count = Math.max(2, Math.round(ui.mot.seconds * fps));
+    $('motGo').disabled = true;
+    try {
+      if (type === 'build' || type === 'diffuse') {
+        busy(true, 'Preparing', 0.1);
+        const pp = type === 'diffuse' ? { ...p, centreMode: 'off' } : p;
+        const base = await Comput.generate(pp, p.size, { cache, image: await sourceImage(false) });
+        if (gone()) return;
+        const R = Comput.rng(p.seed + 5), u = new Float32Array(base.n); for (let j = 0; j < base.n; j++) u[j] = R();
+        MOT.frames = { mode: 'mask', type, base, u, count, fps };
+      } else {
+        const list = []; let prev = null, N = null;
+        const lx = p.source === 'sphere' ? 'lightX' : 'iLightX', ly = p.source === 'sphere' ? 'lightY' : 'iLightY';
+        const a0 = Math.atan2(p[ly], p[lx]), rr = Math.max(0.35, Math.hypot(p[lx], p[ly]));
+        const t0 = performance.now();
+        for (let f = 0; f < count; f++) {
+          const t = f / count, pf = { ...p };
+          if (type === 'light') { pf[lx] = rr * Math.cos(a0 + 2 * Math.PI * t); pf[ly] = rr * Math.sin(a0 + 2 * Math.PI * t); }
+          if (type === 'turn') pf.scene = { ...SC(), yaw: (SC().yaw || 0) + 360 * t };
+          let image;
+          if (p.source === 'scene') {
+            const a = Comput.aspectOf(pf.scene.aspect), w = a >= 1 ? 420 : Math.round(420 * a);
+            image = await Comput.renderScene(pf.scene, pf, w, Math.round(w / a));
+          } else image = effImage();
+          const r = await Comput.generate(pf, p.size, { image, init: prev, fixedN: N, iters: prev ? 3 : undefined, stable: true });
+          if (gone()) return;
+          prev = r.relaxed; N = r.n; list.push(compact(r));
+          const el = (performance.now() - t0) / 1000, left = (el / (f + 1)) * (count - f - 1);
+          busy(true, `Frame ${f + 1}/${count} · about ${Math.ceil(left)} s left`, (f + 1) / count);
+          draw(list[f]);
+        }
+        MOT.frames = { mode: 'stack', type, list, count, fps };
+      }
+      busy(false, 'Ready'); syncMotion(); play();
+      $('motNote').textContent = `${count} frames at ${fps} fps. Video uses white where the background is transparent.`;
+    } catch (e) {
+      if (!(e instanceof Comput.Cancelled)) { console.error(e); busy(false, 'Error: ' + e.message); }
+    } finally { if (!gone()) $('motGo').disabled = false; else $('motGo').disabled = false; }
+  }
+  function play() {
+    const M = MOT.frames; if (!M) return;
+    MOT.playing = true; const start = performance.now();
+    const tick = (now) => {
+      if (!MOT.playing || ui.mode !== 'motion') return;
+      const i = Math.floor(((now - start) / 1000) * M.fps) % M.count, fr = frameAt(i);
+      draw(fr.r, fr.vis); MOT.raf = requestAnimationFrame(tick);
+    };
+    MOT.raf = requestAnimationFrame(tick);
+  }
+  $('motGo').addEventListener('click', renderMotion);
+  const baseName = () => `comput-${p.source === 'sphere' ? 'sphere' : p.source === 'scene' ? 'scene' : 'illustration'}-${ui.mot.type}`;
+  function frameSvg(i) {
+    const fr = frameAt(i), r = fr.r;
+    let res;
+    if (r.hx) res = { ...r, ux: r.hx, uy: r.hy, half: ONES(r.n) };
+    else res = r;
+    if (fr.vis) res = { ...res, shape: res.shape.map((v, j) => (fr.vis[j] ? v : -1)) };
+    let c = 0, l = 0; for (let j = 0; j < res.n; j++) { if (res.shape[j] === 0) c++; else if (res.shape[j] === 1) l++; }
+    return Comput.svg({ ...res, circles: c, lines: l }, p, ui.fmt);
+  }
+  function loadZip() {
+    if (window.JSZip) return Promise.resolve(window.JSZip);
+    return new Promise((res, rej) => {
+      const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+      sc.onload = () => res(window.JSZip); sc.onerror = () => rej(new Error('zip library did not load')); document.head.appendChild(sc);
+    });
+  }
+  $('expFrames').addEventListener('click', async () => {
+    const M = MOT.frames; if (!M) return;
+    try {
+      busy(true, 'Packing frames', 0); const JSZip = await loadZip(), zip = new JSZip();
+      for (let i = 0; i < M.count; i++) { zip.file(`frame-${String(i + 1).padStart(4, '0')}.svg`, frameSvg(i)); if (i % 6 === 0) { busy(true, `Packing frame ${i + 1}/${M.count}`, i / M.count); await new Promise((r) => setTimeout(r, 0)); } }
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+      busy(false, 'Ready'); saveFile(`${baseName()}-${M.count}-frames.zip`, blob, 'application/zip');
+    } catch (e) { busy(false, 'Ready'); toast('Could not pack the frames'); }
+  });
+  $('expAnim').addEventListener('click', () => {
+    const M = MOT.frames; if (!M || M.type !== 'build') return;
+    saveFile(`${baseName()}-${ui.mot.seconds}s.svg`, Comput.buildUpSvg(M.base, p, ui.mot.seconds));
+  });
+  $('expVideo').addEventListener('click', async () => {
+    const M = MOT.frames; if (!M || typeof MediaRecorder === 'undefined') return toast('This browser cannot record video. Export SVG frames instead.');
+    const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find((t) => MediaRecorder.isTypeSupported(t));
+    if (!mime) return toast('This browser cannot record video. Export SVG frames instead.');
+    const r0 = frameAt(0).r, sc = Math.min(1, 1440 / Math.max(r0.width, r0.height));
+    const cw = Math.round((r0.width * sc) / 2) * 2, ch = Math.round((r0.height * sc) / 2) * 2;
+    const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch; const ctx = cv.getContext('2d');
+    const paint = (i) => {
+      const fr = frameAt(i); ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = p.background === 'none' ? '#ffffff' : p.background; ctx.fillRect(0, 0, cw, ch);
+      ctx.setTransform(cw / r0.width, 0, 0, ch / r0.height, 0, 0); paintMarks(ctx, fr.r, fr.vis);
+    };
+    const wasPlaying = MOT.playing; MOT.playing = false; cancelAnimationFrame(MOT.raf);
+    try {
+      paint(0);
+      const stream = cv.captureStream(0), track = stream.getVideoTracks()[0], chunks = [];
+      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 16e6 });
+      rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      const done = new Promise((res) => { rec.onstop = res; });
+      rec.start();
+      for (let i = 0; i < M.count; i++) {
+        paint(i); track.requestFrame && track.requestFrame();
+        busy(true, `Recording ${i + 1}/${M.count}`, (i + 1) / M.count);
+        await new Promise((res) => setTimeout(res, 1000 / M.fps));
+      }
+      rec.stop(); await done; busy(false, 'Ready');
+      const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
+      saveFile(`${baseName()}-${ui.mot.seconds}s.${ext}`, new Blob(chunks, { type: mime.split(';')[0] }), mime.split(';')[0]);
+    } catch (e) { console.error(e); busy(false, 'Ready'); toast('Could not record the video'); }
+    finally { if (wasPlaying) play(); }
+  });
+
   let tt = 0;
   function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('on'), 2200); }
 
@@ -989,7 +1307,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
     setImageQuiet(im);
     setNormals(saved ? await restoreNormals() : sampleNormals(im), !!saved);
     if (p.normalSource === 'file' && !NMAP) p.normalSource = 'none';
-    syncAll(); applyMode();
+    drawLooks(); syncAll(); applyMode();
   })();
   function setImageQuiet(im) { IMG = im; $('thumb').src = im.url; $('imgName').textContent = im.name.length > 22 ? im.name.slice(0, 20) + '…' : im.name; }
 })();

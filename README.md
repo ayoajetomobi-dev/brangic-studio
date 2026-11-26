@@ -4,6 +4,9 @@ Generator for the brand's 0/1 graphics: circles are 0s, pills are 1s. Output is 
 
 - **Logo:** the sphere logomark, at any size, with centre diffusion (cross or hamburger).
 - **Scene:** build illustrations from Comput's own 3D shapes (sphere, cube, cylinder, ring, capsule) with shapes that hide each other, cast shadows and an optional ground shadow. Drag shapes on the artboard, turn and tilt the camera, melt shapes together, start from ready-made scenes or save your own (saved in the browser).
+- **Looks:** built-in looks (Ink, Paper, Night, Fine, Bold) and your own. Export saved looks and scenes as one `comput-library.json` for the team, and import it on another computer.
+- **Motion:** Build up, Light orbit, Diffusion (logo) and Turn (scenes). Frames start from the previous frame's marks so they drift smoothly. Export as video (MP4 or WebM, depending on the browser), a ZIP of SVG frames, or for Build up one animated SVG.
+- **Describe a scene:** in the Claude artifact only, Claude builds a scene from the shape library from a sentence. The public site has no AI connection.
 - **Picture:** any picture or 3D render turned into 0s and 1s. Dark areas pack tight, light areas stay sparse, outlines get extra packing, and pills follow the shapes. Cut-out PNGs with transparent backgrounds work best.
   - **3D form** (optional): *Inflate* rounds out any flat cut-out shape, no 3D software needed; or load a *normal map* exported from 3D software. Pills then follow the surface (Burst, Follow, Rings, like the logo), shorten towards the edges, and Comput can light the object with the logo's own light, shadow and rim model. Illustrations keep their own light, separate from the logo's.
 

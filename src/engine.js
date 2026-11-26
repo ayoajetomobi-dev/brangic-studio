@@ -179,6 +179,8 @@ const Comput = (() => {
     const pl = plan(p, size);
     let N = pl.n;
     const R = rng(p.seed);
+    // motion: a separate stream for the loosening noise, so each mark keeps the same offset frame to frame
+    const RN = opt.stable ? rng(p.seed + 101) : R;
 
     // ---------- 1. density on the unit ball (y up) ----------
     let L0 = p.lightX, L1 = p.lightY, L2 = 1;
@@ -218,6 +220,7 @@ const Comput = (() => {
       }
       N = Math.max(40, Math.round(N * (a / b)));
     }
+    if (opt.fixedN) N = opt.fixedN;
 
     // ---------- 2. density-weighted samples, then Lloyd (k-means) relaxation ----------
     const M = Math.round(Math.min(3.2e6, opt.draft ? Math.max(20000, N * 6) : Math.max(40000, N * 14)));
@@ -246,19 +249,21 @@ const Comput = (() => {
     await maybeYield(0.02);
 
     const X = new Float64Array(N), Y = new Float64Array(N);
-    for (let i = 0; i < N; i++) {
+    if (opt.init && opt.init.X.length === N) { X.set(opt.init.X); Y.set(opt.init.Y); }   // motion: start from the last frame
+    else for (let i = 0; i < N; i++) {
       const k = (R() * m) | 0;
       X[i] = SX[k] + (R() - 0.5) * cs; Y[i] = SY[k] + (R() - 0.5) * cs;
     }
 
-    const iters = opt.draft ? Math.min(3, Math.round(4 + 40 * (1 - p.organic))) : Math.round(4 + 40 * (1 - p.organic));
+    const iters = opt.iters ?? (opt.draft ? Math.min(3, Math.round(4 + 40 * (1 - p.organic))) : Math.round(4 + 40 * (1 - p.organic)));
     const h = Math.sqrt((2 * Math.PI) / N), GS = Math.ceil(2.04 / h);
     await lloyd(X, Y, N, SX, SY, m, -1.02, -1.02, h, GS, GS, iters, maybeYield);
+    const RX = Float64Array.from(X), RY = Float64Array.from(Y);
 
     // loosen the grid, keep everything on the ball
     const sig = p.organic * 0.35 * Math.sqrt(Math.PI / N), LIM = 1 - 1 / 300;
     for (let i = 0; i < N; i++) {
-      X[i] += R.normal() * sig; Y[i] += R.normal() * sig;
+      X[i] += RN.normal() * sig; Y[i] += RN.normal() * sig;
       const r = Math.hypot(X[i], Y[i]);
       if (r > LIM) { X[i] *= LIM / r; Y[i] *= LIM / r; }
     }
@@ -270,12 +275,12 @@ const Comput = (() => {
         const nz = Math.sqrt(Math.max(0, 1 - X[i] * X[i] - Y[i] * Y[i])), k = keep(X[i], Y[i], nz);
         const local = Math.min(0.12, spacing0 / Math.sqrt(Math.max(k, 0.02)));
         const s = 0.5 * (1 - k) * local;
-        X[i] += R.normal() * s; Y[i] += R.normal() * s;
+        X[i] += RN.normal() * s; Y[i] += RN.normal() * s;
         const r = Math.hypot(X[i], Y[i]);
         if (r > LIM) { X[i] *= LIM / r; Y[i] *= LIM / r; }
       }
     }
-    return { key: positionsKey(p, size, opt.draft), plan: pl, n: N, X, Y, L0, L1, draft: !!opt.draft, ms: Date.now() - t0 };
+    return { key: positionsKey(p, size, opt.draft), plan: pl, n: N, X, Y, L0, L1, relaxed: { X: RX, Y: RY }, draft: !!opt.draft, ms: Date.now() - t0 };
   }
 
   // Stage B (fast): turn positions into 0s and 1s. Has its own random stream so it
@@ -533,8 +538,8 @@ const Comput = (() => {
 
   async function imagePositions(p, img, size, opt = {}) {
     const maybeYield = yielder(opt, 0, opt.draft ? 1 : 0.88);
-    const t0 = Date.now(), R = rng(p.seed);
-    const pl = imagePlan(p, img, size), N = pl.n, { W, H } = pl;
+    const t0 = Date.now(), R = rng(p.seed), RN = opt.stable ? rng(p.seed + 101) : R;
+    const pl = imagePlan(p, img, size), N = opt.fixedN || pl.n, { W, H } = pl;
     const key = imageKey(p, img, size, opt.draft);
     if (N < 1) return { key, kind: 'image', plan: pl, n: 0, X: new Float64Array(0), Y: new Float64Array(0), draft: !!opt.draft, ms: 0 };
     const C = coverage(img, p), cw = W / img.w, ch = H / img.h;
@@ -548,16 +553,18 @@ const Comput = (() => {
     }
     await maybeYield(0.02);
     const X = new Float64Array(N), Y = new Float64Array(N);
-    for (let i = 0; i < N; i++) { const k = (R() * m) | 0; X[i] = SX[k]; Y[i] = SY[k]; }
-    const iters = opt.draft ? Math.min(3, Math.round(4 + 40 * (1 - p.organic))) : Math.round(4 + 40 * (1 - p.organic));
+    if (opt.init && opt.init.X.length === N) { X.set(opt.init.X); Y.set(opt.init.Y); }
+    else for (let i = 0; i < N; i++) { const k = (R() * m) | 0; X[i] = SX[k]; Y[i] = SY[k]; }
+    const iters = opt.iters ?? (opt.draft ? Math.min(3, Math.round(4 + 40 * (1 - p.organic))) : Math.round(4 + 40 * (1 - p.organic)));
     const h = Math.max(0.5, Math.sqrt((2 * pl.inkArea) / N));
     await lloyd(X, Y, N, SX, SY, m, 0, 0, h, Math.ceil(W / h) + 1, Math.ceil(H / h) + 1, iters, maybeYield);
+    const RX = Float64Array.from(X), RY = Float64Array.from(Y);
     const sig = p.organic * 0.35 * Math.sqrt(pl.inkArea / N);
     for (let i = 0; i < N; i++) {
-      X[i] = Math.min(W, Math.max(0, X[i] + R.normal() * sig));
-      Y[i] = Math.min(H, Math.max(0, Y[i] + R.normal() * sig));
+      X[i] = Math.min(W, Math.max(0, X[i] + RN.normal() * sig));
+      Y[i] = Math.min(H, Math.max(0, Y[i] + RN.normal() * sig));
     }
-    return { key, kind: 'image', plan: pl, n: N, X, Y, draft: !!opt.draft, ms: Date.now() - t0 };
+    return { key, kind: 'image', plan: pl, n: N, X, Y, relaxed: { X: RX, Y: RY }, draft: !!opt.draft, ms: Date.now() - t0 };
   }
 
   async function imagePlace(pos, p, img, opt = {}) {
@@ -712,6 +719,36 @@ const Comput = (() => {
       id: (light ? '' : render.id) + '|' + nmap.id + '|' + mode + '|' + (flipY ? 1 : 0), name: render.name, w, h,
       lum: light ? new Float32Array(n).fill(0.5) : render.lum, alpha: light ? nmap.alpha : render.alpha, normal: { x, y, z },
     };
+  }
+
+  // =================== motion helpers ===================
+  // share of the logo's marks kept by centre diffusion at a given centre density (0 … 100)
+  function diffusionKeep(p, centrePct) {
+    const mode = p.centreMode === 'hamburger' ? 'hamburger' : 'cross';
+    const cl = (v) => Math.min(1, Math.max(0, v));
+    const CV = 0.04 + 0.96 * cl(centrePct / 100), CE = 4 - 3.65 * cl(p.centreReach / 100), HBW = 0.15 + 0.6 * cl(p.centreReach / 100);
+    return (x, y) => {
+      if (CV >= 1) return 1;
+      const w = mode === 'hamburger' ? Math.exp(-((y / HBW) ** 2)) : Math.pow(Math.sqrt(Math.max(0, 1 - x * x - y * y)), CE);
+      return 1 - (1 - CV) * w;
+    };
+  }
+  // one animated SVG: the marks appear in batches, in a random order
+  function buildUpSvg(res, p, seconds = 3, groups = 24, loop = false) {
+    const W = res.width, H = res.height, R = rng(p.seed + 5), n = res.n;
+    const bucket = new Uint8Array(n); for (let i = 0; i < n; i++) bucket[i] = Math.min(groups - 1, (R() * groups) | 0);
+    const parts = [];
+    for (let g = 0; g < groups; g++) {
+      const sub = { ...res, shape: res.shape.map((v, i) => (bucket[i] === g ? v : -1)) };
+      parts.push(`<g class="b" style="animation-delay:${((g / groups) * seconds * 0.85).toFixed(3)}s">${marks(sub, p, 'compact', 1, W <= 512 ? 2 : 1)}</g>`);
+    }
+    const dur = Math.max(0.2, (seconds / groups) * 2.5).toFixed(2);
+    const css = loop
+      ? `.b{opacity:0;animation:a ${seconds * 1.4}s ease-in-out infinite}@keyframes a{0%{opacity:0}12%{opacity:1}75%{opacity:1}100%{opacity:0}}`
+      : `.b{opacity:0;animation:a ${dur}s ease-out forwards}@keyframes a{to{opacity:1}}@media (prefers-reduced-motion:reduce){.b{animation:none;opacity:1}}`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
+      `<!-- Comput · build up · ${seconds}s · ${res.circles} 0s · ${res.lines} 1s · seed ${p.seed} -->` +
+      `<style>${css}</style>` + bgRect(p, W, H) + parts.join('') + `</svg>`;
   }
 
   // =================== scenes: Comput's own 3D shapes ===================
@@ -890,13 +927,15 @@ const Comput = (() => {
     const img = pic ? opt.image : null;
     if (pic && !img) throw new Error(p.source === 'scene' ? 'The scene is empty' : 'No image loaded');
     const key = img ? imageKey(p, img, size, opt.draft) : positionsKey(p, size, opt.draft);
-    let pos = opt.cache && opt.cache.get(key);
+    const motion = !!(opt.init || opt.fixedN || opt.stable);
+    let pos = !motion && opt.cache && opt.cache.get(key);
     if (pos) { pos = { ...pos, fromCache: true }; opt.cache.delete(key); opt.cache.set(key, pos); }
     else {
       pos = img ? await imagePositions(p, img, size, opt) : await positions(p, size, opt);
-      if (opt.cache) { opt.cache.set(key, pos); while (opt.cache.size > 8) opt.cache.delete(opt.cache.keys().next().value); }
+      if (opt.cache && !motion) { opt.cache.set(key, pos); while (opt.cache.size > 8) opt.cache.delete(opt.cache.keys().next().value); }
     }
     const res = img ? await imagePlace(pos, p, img, opt) : await place(pos, p, opt);
+    res.relaxed = pos.relaxed;
     (opt.onProgress || (() => {}))(1);
     return res;
   }
@@ -969,6 +1008,6 @@ const Comput = (() => {
       `<style>${css}</style>` + bgRect(p, V, VH) + groups + `</svg>`;
   }
 
-  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
+  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
 })();
 if (typeof module !== 'undefined') module.exports = Comput;
