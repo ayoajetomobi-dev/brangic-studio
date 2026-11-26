@@ -4,6 +4,7 @@ Generator for the brand's 0/1 graphics: circles are 0s, pills are 1s. Output is 
 
 - **Logo:** the sphere logomark, at any size, with centre diffusion (cross or hamburger).
 - **Scene:** build illustrations from Comput's own 3D shapes (sphere, cube, cylinder, ring, capsule) with shapes that hide each other, cast shadows and an optional ground shadow. Drag shapes on the artboard, turn and tilt the camera, melt shapes together, start from ready-made scenes or save your own (saved in the browser).
+- **Undo / redo:** buttons by Shuffle, or Cmd/Ctrl+Z and Shift+Cmd/Ctrl+Z (Ctrl+Y on Windows). Covers every setting and scene edit, up to 150 steps, for the current visit.
 - **Scene controls:** drag a shape to edit it with the current tool (Move, Rotate, Scale; Free or X, Y, Z). Drag empty space to orbit, Shift-drag or right-drag to pan, scroll or pinch to zoom. Keys: G move, R rotate, S scale, X/Y/Z axis, Esc free, F reset view, Delete remove, Shift+D duplicate, arrows nudge.
 - **Speed:** the engine runs in a background worker, so the page never waits on it. In Scene mode a GPU preview (`src/gpu.js`) draws the same lighting and 0/1 marks live at full frame rate while you work; the exact render replaces it a moment after you stop.
 - **Looks:** built-in looks (Ink, Paper, Night, Fine, Bold) and your own. Export saved looks and scenes as one `comput-library.json` for the team, and import it on another computer.

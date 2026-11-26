@@ -42,6 +42,7 @@ header { display: flex; align-items: center; gap: 14px; min-height: 40px; border
 .hdr-read { display: flex; gap: 22px; margin-left: auto; align-items: center }
 .iconbtn { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--ink); background: transparent; display: grid; place-items: center; cursor: pointer; padding: 0; flex: none }
 .iconbtn svg { width: 14px; height: 14px }
+.iconbtn[disabled] { opacity: .35; cursor: default }
 
 .main { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 14px; min-height: 0 }
 .controls { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; scrollbar-width: thin }
@@ -334,6 +335,8 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
           <button data-v="one" aria-pressed="false">1:1</button>
         </div>
         <button class="btn ghost sm" id="shuffle" title="New random arrangement, same design">Shuffle</button>
+        <button class="iconbtn" id="undo" title="Undo (Cmd/Ctrl+Z)" aria-label="Undo" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 3.5 2.5 6.5l3 3"/><path d="M3 6.5h6.5a3.75 3.75 0 0 1 0 7.5H7"/></svg></button>
+        <button class="iconbtn" id="redo" title="Redo (Shift+Cmd/Ctrl+Z)" aria-label="Redo" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 3.5l3 3-3 3"/><path d="M13 6.5H6.5a3.75 3.75 0 0 0 0 7.5H9"/></svg></button>
         <div class="status lab" id="status"><span class="pulse"></span><span id="statusText">Ready</span></div>
       </div>
       <div class="rsp-ctl" id="rspCtl" hidden>
@@ -408,7 +411,35 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     }
     if (s) { p = { ...D, ...s.p }; ui = { ...ui, ...s.ui }; }
   } catch (e) {}
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ p, ui })); } catch (e) {} };
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ p, ui })); } catch (e) {} queueHistory(); };
+  // ---------- undo / redo ----------
+  // A snapshot of every setting (including the scene) is kept once a change settles:
+  // nothing is recorded while a slider, shape or the camera is still being dragged, and
+  // quick changes close together become one step.
+  var HIST = { stack: [], idx: -1, t: 0, ready: false };
+  function queueHistory() {
+    if (!HIST.ready) return;
+    clearTimeout(HIST.t);
+    HIST.t = setTimeout(function commit() {
+      if (held > 0 || gest) { HIST.t = setTimeout(commit, 200); return; }
+      const snap = JSON.stringify(p), top = HIST.stack[HIST.idx];
+      if (top && top.p === snap) { top.sel = ui.sel; return; }      // only selection changed: not a step
+      HIST.stack = HIST.stack.slice(0, HIST.idx + 1); HIST.stack.push({ p: snap, sel: ui.sel });
+      if (HIST.stack.length > 150) HIST.stack.shift();
+      HIST.idx = HIST.stack.length - 1; syncHistory();
+    }, 350);
+  }
+  function syncHistory() { $('undo').disabled = HIST.idx <= 0; $('redo').disabled = HIST.idx >= HIST.stack.length - 1; }
+  function restore(step) {
+    clearTimeout(HIST.t);
+    const i = HIST.idx + step; if (i < 0 || i >= HIST.stack.length) return;
+    HIST.idx = i; const s0 = HIST.stack[i];
+    const keepSize = p.size;
+    p = { ...D, ...JSON.parse(s0.p) }; ui.sel = Math.max(0, Math.min(s0.sel ?? 0, (p.scene?.shapes?.length || 1) - 1));
+    if (p.background !== 'none') lastBg = p.background;
+    syncHistory(); changed(p.size !== keepSize ? 'size' : 'all');
+    toast(step < 0 ? 'Undone' : 'Redone');
+  }
 
   // ---------- slider rows ----------
   const f2 = (v) => (+v).toFixed(2), pct = (v) => `${Math.round(v)}%`, int = (v) => Math.round(v).toLocaleString('en-GB');
@@ -959,6 +990,15 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     e.preventDefault();
   });
   document.addEventListener('keyup', (e) => { if (e.key === ' ') spaceDown = false; });
+  $('undo').addEventListener('click', () => restore(-1));
+  $('redo').addEventListener('click', () => restore(1));
+  document.addEventListener('keydown', (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    if (e.target.closest && e.target.closest('input[type=text], input[type=number], textarea, [contenteditable]')) return;   // text fields keep their own undo
+    const k = e.key.toLowerCase();
+    if (k === 'z') { e.preventDefault(); restore(e.shiftKey ? 1 : -1); }
+    else if (k === 'y' && e.ctrlKey) { e.preventDefault(); restore(1); }
+  });
 
   // the picture Comput actually works from: the image plus its 3D form, if any
   const effMemo = new Map();
@@ -1522,6 +1562,7 @@ Use at most 8 shapes. Compose with clear negative space and simple, bold forms. 
     setNormals(saved ? await restoreNormals() : sampleNormals(im), !!saved);
     if (p.normalSource === 'file' && !NMAP) p.normalSource = 'none';
     drawLooks(); syncAll(); applyMode();
+    HIST.stack = [{ p: JSON.stringify(p), sel: ui.sel }]; HIST.idx = 0; HIST.ready = true; syncHistory();
   })();
   function setImageQuiet(im) { IMG = im; $('thumb').src = im.url; $('imgName').textContent = im.name.length > 22 ? im.name.slice(0, 20) + '…' : im.name; }
 })();
