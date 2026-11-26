@@ -1,0 +1,976 @@
+<title>Comput</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&display=swap">
+<style>
+/* Layout: instrument panel. Header strip, control column of rounded modules, square artboard stage. Monochrome only. */
+:root {
+  --bg: #e3e5e0;        /* pale instrument grey */
+  --panel: #ecedea;     /* module surface */
+  --ink: #121312;       /* black ink */
+  --mute: #6a6e68;      /* secondary readout */
+  --rule: #c9ccc6;      /* hairlines on panel */
+  --fill: #d5d8d2;      /* slider track / chip off */
+  --board: #f4f5f2;     /* transparent-artboard paper */
+  --board-2: #e9eae6;   /* checker */
+  --font: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0a0a0a; --panel: #1a1b1a; --ink: #eceeea; --mute: #8b8f89; --rule: #2d2f2d; --fill: #2b2d2b;
+  --board: #f4f5f2; --board-2: #e9eae6; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0a0a0a; --panel: #1a1b1a; --ink: #eceeea; --mute: #8b8f89; --rule: #2d2f2d; --fill: #2b2d2b;
+  --board: #f4f5f2; --board-2: #e9eae6; color-scheme: dark }
+
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+html, body { height: 100% }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 13px; line-height: 1.35;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 14px 16px; -webkit-font-smoothing: antialiased;
+}
+button, input, select { font: inherit; color: inherit }
+.lab { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; font-weight: 500 }
+.num { font-variant-numeric: tabular-nums }
+.mute { color: var(--mute) }
+
+.app { display: grid; grid-template-rows: auto 1fr; gap: 14px; height: 100%; max-width: 1480px; margin: 0 auto }
+header { display: flex; align-items: center; gap: 14px; min-height: 40px; border-bottom: 1px solid var(--ink); padding-bottom: 12px }
+.brand { display: flex; align-items: center; gap: 10px }
+.brand canvas { width: 30px; height: 30px; display: block }
+.brand b { font-size: 20px; font-weight: 500; letter-spacing: .14em }
+.hdr-read { display: flex; gap: 22px; margin-left: auto; align-items: center; flex-wrap: wrap; justify-content: flex-end }
+.hdr-read span { white-space: nowrap }
+.iconbtn { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--ink); background: transparent; display: grid; place-items: center; cursor: pointer; padding: 0 }
+.iconbtn svg { width: 14px; height: 14px }
+
+.main { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 14px; min-height: 0 }
+.controls { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; scrollbar-width: thin }
+
+.mod { background: var(--panel); border-radius: 22px; padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 12px }
+.mod-h { display: flex; align-items: baseline; justify-content: space-between; gap: 10px }
+.mod-h .lab { font-weight: 600 }
+.mod p.hint { margin: -4px 0 0; color: var(--mute); font-size: 12px; text-wrap: pretty }
+
+.rows { display: flex; flex-direction: column; gap: 12px }
+.row { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center }
+.row label { font-size: 12px }
+.row output { font-size: 12px; text-align: right; min-width: 3.5em }
+.row input[type=range] { grid-column: 1 / -1 }
+.row.dim { opacity: .45 }
+.row .hint { grid-column: 1 / -1; color: var(--mute); font-size: 11px; margin: 0 }
+
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; margin: 0; cursor: pointer }
+input[type=range]::-webkit-slider-runnable-track { height: 1px; background: var(--ink) }
+input[type=range]::-moz-range-track { height: 1px; background: var(--ink) }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%; background: var(--ink); margin-top: -6px; border: 0 }
+input[type=range]::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: var(--ink); border: 0 }
+input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset: 3px }
+
+.seg { display: flex; border: 1px solid var(--ink); border-radius: 999px; padding: 2px; gap: 2px }
+.seg button { flex: 1; border: 0; background: transparent; border-radius: 999px; padding: 6px 8px; cursor: pointer; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 500; white-space: nowrap }
+.seg button[aria-pressed=true] { background: var(--ink); color: var(--panel) }
+.seg button:focus-visible, .chip:focus-visible, .btn:focus-visible, .iconbtn:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px }
+.chip { border: 1px solid var(--ink); background: transparent; border-radius: 999px; padding: 5px 10px; font-size: 11.5px; cursor: pointer; font-variant-numeric: tabular-nums }
+.chip[aria-pressed=true] { background: var(--ink); color: var(--panel) }
+
+.field { display: flex; align-items: center; gap: 8px; border: 1px solid var(--ink); border-radius: 999px; padding: 4px 6px 4px 14px }
+.field input { border: 0; background: transparent; width: 100%; min-width: 0; font-size: 15px; outline: none; font-variant-numeric: tabular-nums }
+.field .unit { font-size: 10.5px; letter-spacing: .08em; color: var(--mute) }
+.field input[type=color] { width: 26px; height: 26px; padding: 0; border-radius: 50%; overflow: hidden; flex: none; cursor: pointer }
+.field input[type=color]::-webkit-color-swatch-wrapper { padding: 0 } .field input[type=color]::-webkit-color-swatch { border: 0; border-radius: 50% }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; cursor: pointer }
+.toggle input { appearance: none; -webkit-appearance: none; width: 34px; height: 20px; border: 1px solid var(--ink); border-radius: 999px; position: relative; cursor: pointer; margin: 0; flex: none }
+.toggle input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--ink); transition: left .15s }
+.toggle input:checked { background: var(--ink) } .toggle input:checked::after { left: 17px; background: var(--panel) }
+.toggle input:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px }
+
+/* law chart */
+.law svg { width: 100%; height: auto; display: block; overflow: visible }
+.law .ax { stroke: var(--ink); stroke-width: 1 } .law .grid { stroke: var(--rule); stroke-width: 1 }
+.law text { fill: var(--mute); font-size: 9px; font-family: var(--font) }
+.law .cur { stroke: var(--ink); stroke-width: 1.5; fill: none } .law .old { stroke: var(--mute); stroke-width: 1; stroke-dasharray: 3 3; fill: none }
+.law .dot { fill: var(--ink) } .law .lg { fill: var(--ink) }
+
+/* stage */
+.stage { background: var(--panel); border-radius: 22px; display: flex; flex-direction: column; min-height: 0; overflow: hidden }
+.stage-top { display: flex; align-items: center; gap: 12px; padding: 12px 14px 12px 18px; border-bottom: 1px solid var(--rule); flex-wrap: wrap }
+.stage-top .seg { min-width: 240px }
+.status { margin-left: auto; display: flex; align-items: center; gap: 8px }
+.pulse { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--ink) }
+.busy .pulse { background: var(--ink); animation: blink .8s steps(2) infinite }
+@keyframes blink { 50% { opacity: .2 } }
+@media (prefers-reduced-motion: reduce) { .busy .pulse { animation: none } }
+.bar { height: 1px; background: var(--rule); position: relative }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); width: 0 }
+
+.view { position: relative; overflow: auto; flex: 1; min-height: 0; display: grid; place-items: center; padding: 22px }
+.board { position: relative; background-color: var(--board);
+  background-image: linear-gradient(45deg, var(--board-2) 25%, transparent 25%, transparent 75%, var(--board-2) 75%), linear-gradient(45deg, var(--board-2) 25%, transparent 25%, transparent 75%, var(--board-2) 75%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px; outline: 1px solid var(--rule) }
+.board canvas, .board img { display: block }
+.board .tag { position: absolute; left: 0; top: -18px; font-size: 10px; letter-spacing: .08em; color: var(--mute); white-space: nowrap }
+.view.one .board { margin: auto }
+
+.stage-foot { display: flex; align-items: center; gap: 14px 22px; padding: 12px 14px 14px 18px; border-top: 1px solid var(--rule); flex-wrap: wrap }
+.reads { display: flex; gap: 6px 22px; flex-wrap: wrap }
+.reads div { display: flex; flex-direction: column; gap: 2px }
+.reads .v { font-size: 15px; font-variant-numeric: tabular-nums }
+.actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+.btn { border: 1px solid var(--ink); border-radius: 999px; padding: 10px 18px; background: var(--ink); color: var(--panel); cursor: pointer; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; font-weight: 600; display: inline-flex; gap: 8px; align-items: center }
+.btn.ghost { background: transparent; color: var(--ink) }
+.btn[disabled] { opacity: .4; cursor: default }
+.note { font-size: 11.5px; color: var(--mute); max-width: 52ch; text-wrap: pretty }
+.toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--panel); padding: 9px 16px; border-radius: 999px; font-size: 12px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 5 }
+.toast.on { opacity: 1 }
+
+.rsp-ctl { display: flex; gap: 10px 18px; align-items: center; padding: 10px 14px 10px 18px; border-bottom: 1px solid var(--rule); flex-wrap: wrap }
+.rsp-ctl .w { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 220px }
+.rsp-ctl input[type=range] { flex: 1 }
+
+@media (max-width: 900px) {
+  html, body { height: auto }
+  .app { height: auto }
+  .main { grid-template-columns: 1fr }
+  .stage { order: -1; min-height: 0 }
+  .view { min-height: 78vw; max-height: 80vh }
+  .controls { overflow: visible; padding-right: 0 }
+  .opt { display: none }
+}
+</style>
+
+<div class="app">
+  <header>
+    <div class="brand"><canvas id="mini" width="60" height="60" aria-hidden="true"></canvas><b>COMPUT</b></div>
+    <span class="lab mute opt">Generator / Sphere / v0.1</span>
+    <div class="hdr-read lab">
+      <span class="opt">Output: SVG</span>
+      <span class="opt">Seed <span id="hSeed" class="num">003</span></span>
+      <button class="iconbtn" id="theme" title="Switch light or dark interface" aria-label="Switch light or dark interface">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><circle cx="8" cy="8" r="6.5"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="main">
+    <aside class="controls" id="controls">
+      <section class="mod">
+        <div class="mod-h"><span class="lab">Output size</span><span class="lab mute">Px</span></div>
+        <div class="field"><input id="size" type="number" min="16" max="8192" step="1" inputmode="numeric" aria-label="Output size in pixels"><span class="unit">PX</span></div>
+        <div class="chips" id="sizeChips"></div>
+      </section>
+
+      <section class="mod law">
+        <div class="mod-h"><span class="lab">Scaling law</span><span class="lab mute" id="lawFormula">mark ∝ size^0.50</span></div>
+        <p class="hint">As the logo gets bigger each 0 and 1 shrinks relative to it and more of them fill in, so the shading stays the same.</p>
+        <svg id="lawChart" viewBox="0 0 300 132" role="img" aria-label="Mark size in pixels against output size"></svg>
+        <div class="rows" id="lawRows"></div>
+      </section>
+
+      <section class="mod">
+        <div class="mod-h"><span class="lab">Light</span></div>
+        <div class="rows" id="lightRows"></div>
+      </section>
+
+      <section class="mod">
+        <div class="mod-h"><span class="lab">Centre diffusion</span><span class="lab mute" id="diffTag">Off</span></div>
+        <div class="seg" id="diffSeg" role="group" aria-label="Diffusion pattern"></div>
+        <div class="rows" id="diffRows"></div>
+      </section>
+
+      <section class="mod">
+        <div class="mod-h"><span class="lab">Marks / 0 + 1</span></div>
+        <div class="rows" id="markRows1"></div>
+        <div class="row"><label>Line direction</label><span></span></div>
+        <div class="seg" id="dirSeg"></div>
+        <div class="row" id="fromRow"><label>Burst from</label><span></span></div>
+        <div class="seg" id="fromSeg"></div>
+        <div class="rows" id="markRows2"></div>
+        <label class="toggle">Clump in the shadow<input type="checkbox" id="clustering"></label>
+      </section>
+
+      <section class="mod">
+        <div class="mod-h"><span class="lab">Colour</span></div>
+        <div class="pair">
+          <div class="field"><span class="unit">MARK</span><input id="color" type="text" spellcheck="false" aria-label="Mark colour hex"><input id="colorPick" type="color" aria-label="Pick mark colour"></div>
+          <div class="field"><span class="unit">BG</span><input id="bg" type="text" spellcheck="false" aria-label="Background colour hex"><input id="bgPick" type="color" aria-label="Pick background colour"></div>
+        </div>
+        <label class="toggle">Transparent background<input type="checkbox" id="transparent"></label>
+      </section>
+
+      <section class="mod">
+        <div class="mod-h"><span class="lab">Seed</span><span class="lab mute">Arrangement</span></div>
+        <div class="pair">
+          <div class="field"><input id="seed" type="number" min="0" max="99999" step="1" aria-label="Seed"><span class="unit">#</span></div>
+          <button class="btn ghost" id="shuffle">Shuffle</button>
+        </div>
+        <button class="btn ghost" id="reset">Reset all settings</button>
+      </section>
+    </aside>
+
+    <section class="stage" id="stage">
+      <div class="stage-top">
+        <div class="seg" id="modeSeg" role="group" aria-label="Mode">
+          <button data-v="single" aria-pressed="true">Single size</button>
+          <button data-v="responsive" aria-pressed="false">Responsive</button>
+        </div>
+        <div class="seg" id="viewSeg" role="group" aria-label="Zoom" style="min-width:140px">
+          <button data-v="fit" aria-pressed="true">Fit</button>
+          <button data-v="one" aria-pressed="false">1:1</button>
+        </div>
+        <div class="status lab" id="status"><span class="pulse"></span><span id="statusText">Ready</span></div>
+      </div>
+      <div class="rsp-ctl" id="rspCtl" hidden>
+        <span class="lab">Detail levels</span>
+        <div class="chips" id="lodChips"></div>
+        <div class="w"><span class="lab">Draw at</span><input type="range" id="rspW" min="0" max="1000" step="1" aria-label="Width the responsive SVG is drawn at"><output class="num" id="rspWOut" style="min-width:5em;text-align:right">512 PX</output></div>
+      </div>
+      <div class="bar"><i id="bar"></i></div>
+      <div class="view" id="view">
+        <div class="board" id="board"><span class="tag lab" id="boardTag"></span><canvas id="cv"></canvas><img id="rspImg" alt="Responsive sphere logo preview" hidden></div>
+      </div>
+      <div class="stage-foot">
+        <div class="reads" id="reads"></div>
+        <div class="actions" id="actSingle">
+          <div class="seg" id="fmtSeg" role="group" aria-label="SVG format" title="Elements: circles and lines, best for Figma and Illustrator. Compact: two paths, about 3x smaller, best for the web.">
+            <button data-v="elements" aria-pressed="true">Elements</button>
+            <button data-v="compact" aria-pressed="false">Compact</button>
+          </div>
+          <button class="btn" id="export">Export SVG</button>
+        </div>
+        <div class="actions" id="actRsp" hidden>
+          <span class="note" id="rspNote">Use as &lt;img&gt;, &lt;object&gt; or CSS background. Detail switches with the drawn size. Inline &lt;svg&gt; and design tools show the middle level only.</span>
+          <button class="btn" id="exportRsp">Export responsive SVG</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* Comput engine — port of sphere_logo_dense.py with a size-aware scaling law.
+ *
+ * The original script draws a fixed number of marks at a fixed share of the
+ * sphere width, so scaling the SVG up just makes every mark bigger.
+ * Here the output size is an input. Mark size (grain) grows slower than the
+ * logo (grain ∝ size^growth) and the mark count fills the difference so the
+ * ink coverage, and therefore the shading, stays the same at every size.
+ */
+const Comput = (() => {
+  const DEFAULTS = {
+    size: 512,
+    // scaling law
+    base: 96,            // px size where the logo matches the original script
+    baseMarks: 4200,     // MARKS at base size
+    grainBase: 80,       // circle diameter = sphere width / grainBase at base size
+    growth: 0.5,         // 0 = grain keeps its pixel size, 1 = grain scales with the logo
+    minGrain: 0.8,       // px, smallest grain allowed (small sizes get fewer marks)
+    maxMarks: 120000,    // cap; past it the grain grows instead
+    // lighting
+    lightX: -0.25, lightY: 0.45, shadowPacking: 5.0, rimPacking: 4.0,
+    // centre diffusion: how much of the original density the centre keeps (100 = untouched)
+    centre: 100,         // % density left at the very centre
+    centreReach: 50,     // % how far out towards the rim the thinning reaches
+    centreMode: 'cross', // 'cross' thins across x and y, 'hamburger' mainly along y (a band through the middle)
+    // marks
+    lineShare: 0.6, lineLength: 1.9, lineWeight: 0.8,
+    direction: 'radial', radialFrom: 'centre', foreshorten: 0.4,
+    organic: 0.6, wiggle: 6, clustering: true,
+    gap: 9,              // % of grain (0.5px at the original 5.5px grain)
+    // colour
+    color: '#111111', background: 'none', seed: 3,
+  };
+  const RADIUS_RATIO = 0.44; // 220 / 500 in the original
+
+  function plan(p, size) {
+    size = size || p.size;
+    const s = size / p.base;
+    const d0 = (2 * RADIUS_RATIO * p.base) / p.grainBase;
+    let d = Math.max(p.minGrain, d0 * Math.pow(s, p.growth));
+    let n = p.baseMarks * s * s * (d0 / d) ** 2;          // keep coverage constant
+    if (n > p.maxMarks) { n = p.maxMarks; d = d0 * s * Math.sqrt(p.baseMarks / n); }
+    if (n < 40) { n = 40; d = d0 * s * Math.sqrt(p.baseMarks / n); }
+    return { size, n: Math.round(n), grain: d, radius: RADIUS_RATIO * size };
+  }
+
+  function rng(seed) {
+    let a = (Math.imul(seed | 0, 2654435761) ^ 0x9e3779b9) >>> 0;
+    const r = () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    r.normal = () => Math.sqrt(-2 * Math.log(r() || 1e-12)) * Math.cos(6.283185307179586 * r());
+    return r;
+  }
+
+  class Cancelled extends Error {}
+
+  // squared distance between segments p1-q1 and p2-q2 (Ericson)
+  function segDist2(p1x, p1y, q1x, q1y, p2x, p2y, q2x, q2y) {
+    const d1x = q1x - p1x, d1y = q1y - p1y, d2x = q2x - p2x, d2y = q2y - p2y;
+    const rx = p1x - p2x, ry = p1y - p2y;
+    const a = d1x * d1x + d1y * d1y, e = d2x * d2x + d2y * d2y, f = d2x * rx + d2y * ry;
+    let s, t;
+    if (a <= 1e-12 && e <= 1e-12) return rx * rx + ry * ry;
+    if (a <= 1e-12) { s = 0; t = Math.min(1, Math.max(0, f / e)); }
+    else {
+      const c = d1x * rx + d1y * ry;
+      if (e <= 1e-12) { t = 0; s = Math.min(1, Math.max(0, -c / a)); }
+      else {
+        const b = d1x * d2x + d1y * d2y, den = a * e - b * b;
+        s = den !== 0 ? Math.min(1, Math.max(0, (b * f - c * e) / den)) : 0;
+        t = (b * s + f) / e;
+        if (t < 0) { t = 0; s = Math.min(1, Math.max(0, -c / a)); }
+        else if (t > 1) { t = 1; s = Math.min(1, Math.max(0, (b - c) / a)); }
+      }
+    }
+    const dx = p1x + d1x * s - (p2x + d2x * t), dy = p1y + d1y * s - (p2y + d2y * t);
+    return dx * dx + dy * dy;
+  }
+
+  // CSR spatial hash
+  function buildGrid(X, Y, n, min, cell, dim) {
+    const start = new Int32Array(dim * dim + 1), cellOf = new Int32Array(n);
+    for (let i = 0; i < n; i++) {
+      let gx = ((X[i] - min) / cell) | 0, gy = ((Y[i] - min) / cell) | 0;
+      gx = gx < 0 ? 0 : gx >= dim ? dim - 1 : gx;
+      gy = gy < 0 ? 0 : gy >= dim ? dim - 1 : gy;
+      const c = gy * dim + gx; cellOf[i] = c; start[c + 1]++;
+    }
+    for (let c = 0; c < dim * dim; c++) start[c + 1] += start[c];
+    const fill = start.slice(0, dim * dim), items = new Int32Array(n);
+    for (let i = 0; i < n; i++) items[fill[cellOf[i]]++] = i;
+    return { start, items };
+  }
+
+  // yield to the page without setTimeout's 4 ms / background-tab clamping
+  const tick = typeof MessageChannel !== 'undefined'
+    ? (() => { const ch = new MessageChannel(), q = []; ch.port1.onmessage = () => q.shift()(); if (ch.port1.unref) ch.port1.unref(); return () => new Promise((res) => { q.push(res); ch.port2.postMessage(0); }); })()
+    : () => new Promise((res) => setTimeout(res, 0));
+
+  async function generate(p, size, opt = {}) {
+    const onProgress = opt.onProgress || (() => {});
+    const cancelled = opt.cancelled || (() => false);
+    const t0 = Date.now();
+    const pl = plan(p, size);
+    let N = pl.n;
+    const R = rng(p.seed);
+    let last = Date.now();
+    const maybeYield = async (frac) => {
+      if (Date.now() - last > 30) {
+        onProgress(frac); await tick(); last = Date.now();
+        if (cancelled()) throw new Cancelled();
+      }
+    };
+
+    // ---------- 1. density on the unit ball (y up) ----------
+    let L0 = p.lightX, L1 = p.lightY, L2 = 1;
+    const ln = Math.hypot(L0, L1, L2); L0 /= ln; L1 /= ln; L2 /= ln;
+    const SP = p.shadowPacking, RP = p.rimPacking;
+    const density = (x, y) => {
+      const nz = Math.sqrt(Math.max(0, 1 - x * x - y * y));
+      const light = Math.min(1, Math.max(0, x * L0 + y * L1 + nz * L2));
+      const sh = 1 - light, rim = 1 - nz;
+      return (1 + SP * sh * sh + RP * Math.pow(rim, 2.5)) * keep(x, y, nz);
+    };
+
+    // centre diffusion: thin the marks where the ball faces you, leave the rim as it is.
+    // keep() = share of the original density kept; 1 at the rim, `centre` at the middle.
+    // cross: falls off with how much the ball faces you (x and y alike).
+    // hamburger: falls off mainly with height, so a band through the middle thins while
+    // the top and bottom stay packed; a little of the facing term keeps the side rims crisp.
+    const CV = Math.min(1, Math.max(0, p.centre / 100));
+    const CE = 4 - 3.65 * Math.min(1, Math.max(0, p.centreReach / 100)); // reach 0 → tight centre spot, 1 → reaches the rim
+    const HAM = p.centreMode === 'hamburger';
+    const HBW = 0.15 + 0.6 * Math.min(1, Math.max(0, p.centreReach / 100)); // band half-height
+    function keep(x, y, nz) {
+      if (CV >= 1) return 1;
+      let w;
+      if (HAM) { const cy = Math.sqrt(Math.max(0, 1 - y * y)), u = y / HBW; w = Math.exp(-u * u) * (cy > 1e-6 ? Math.pow(nz / cy, 0.6) : 0); }
+      else w = Math.pow(nz, CE);
+      return 1 - (1 - CV) * w;
+    }
+    if (CV < 1) {
+      // fewer marks rather than the same marks pushed outwards, so the rim keeps its packing
+      let a = 0, b = 0;
+      for (let j = 0; j < 160; j++) for (let i = 0; i < 160; i++) {
+        const x = -1 + (i + 0.5) / 80, y = -1 + (j + 0.5) / 80;
+        if (x * x + y * y > 1) continue;
+        const d = density(x, y), k = keep(x, y, Math.sqrt(1 - x * x - y * y));
+        a += d; b += k > 0 ? d / k : 0;
+      }
+      N = Math.max(40, Math.round(N * (a / b)));
+    }
+
+    // ---------- 2. density-weighted samples, then Lloyd (k-means) relaxation ----------
+    const M = Math.round(Math.min(3.2e6, Math.max(40000, N * 14)));
+    const G = Math.ceil(Math.sqrt((4 * M) / Math.PI)), cs = 2 / G;
+    const W = new Float32Array(G * G);
+    let tot = 0;
+    for (let j = 0; j < G; j++) {
+      const y = -1 + (j + 0.5) * cs;
+      for (let i = 0; i < G; i++) {
+        const x = -1 + (i + 0.5) * cs;
+        if (x * x + y * y <= 1) { const w = density(x, y); W[j * G + i] = w; tot += w; }
+      }
+    }
+    const SX = new Float32Array(M + G * G), SY = new Float32Array(M + G * G);
+    let m = 0;
+    for (let j = 0; j < G; j++) {
+      for (let i = 0; i < G; i++) {
+        const w = W[j * G + i]; if (!w) continue;
+        const k = Math.floor((M * w) / tot + R());
+        for (let q = 0; q < k; q++) {
+          const x = -1 + (i + R()) * cs, y = -1 + (j + R()) * cs;
+          if (x * x + y * y < 1) { SX[m] = x; SY[m] = y; m++; }
+        }
+      }
+    }
+    await maybeYield(0.02);
+
+    const X = new Float64Array(N), Y = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      const k = (R() * m) | 0;
+      X[i] = SX[k] + (R() - 0.5) * cs; Y[i] = SY[k] + (R() - 0.5) * cs;
+    }
+
+    const iters = Math.round(4 + 40 * (1 - p.organic));
+    const h = Math.sqrt((2 * Math.PI) / N), GMIN = -1.02, GS = Math.ceil(2.04 / h);
+    const AX = new Float64Array(N), AY = new Float64Array(N), AC = new Int32Array(N);
+    for (let it = 0; it < iters; it++) {
+      const { start, items } = buildGrid(X, Y, N, GMIN, h, GS);
+      AX.fill(0); AY.fill(0); AC.fill(0);
+      for (let q = 0; q < m; q++) {
+        const x = SX[q], y = SY[q];
+        const cx = ((x - GMIN) / h) | 0, cy = ((y - GMIN) / h) | 0;
+        let best = Infinity, bi = -1;
+        for (let r = 0; r < GS; r++) {
+          if (bi >= 0 && r > 1) { const lim = (r - 1) * h; if (lim * lim >= best) break; }
+          const x0 = cx - r, x1 = cx + r, y0 = cy - r, y1 = cy + r;
+          for (let gy = y0; gy <= y1; gy++) {
+            if (gy < 0 || gy >= GS) continue;
+            const step = gy === y0 || gy === y1 ? 1 : x1 - x0 || 1;
+            for (let gx = x0; gx <= x1; gx += step) {
+              if (gx < 0 || gx >= GS) continue;
+              const c = gy * GS + gx;
+              for (let k = start[c], e = start[c + 1]; k < e; k++) {
+                const s = items[k], dx = X[s] - x, dy = Y[s] - y, d = dx * dx + dy * dy;
+                if (d < best) { best = d; bi = s; }
+              }
+            }
+          }
+        }
+        AX[bi] += x; AY[bi] += y; AC[bi]++;
+        if ((q & 0xffff) === 0) await maybeYield(0.04 + 0.82 * ((it + q / m) / iters));
+      }
+      for (let i = 0; i < N; i++) if (AC[i]) { X[i] = AX[i] / AC[i]; Y[i] = AY[i] / AC[i]; }
+    }
+
+    // loosen the grid, keep everything on the ball
+    const sig = p.organic * 0.35 * Math.sqrt(Math.PI / N), LIM = 1 - 1 / 300;
+    for (let i = 0; i < N; i++) {
+      X[i] += R.normal() * sig; Y[i] += R.normal() * sig;
+      const r = Math.hypot(X[i], Y[i]);
+      if (r > LIM) { X[i] *= LIM / r; Y[i] *= LIM / r; }
+    }
+    // thinned areas: scatter the survivors by a share of their own spacing so the
+    // centre reads as a loose natural spray instead of an even sparse grid
+    if (CV < 1) {
+      const spacing0 = Math.sqrt(Math.PI / N);
+      for (let i = 0; i < N; i++) {
+        const nz = Math.sqrt(Math.max(0, 1 - X[i] * X[i] - Y[i] * Y[i])), k = keep(X[i], Y[i], nz);
+        const local = Math.min(0.12, spacing0 / Math.sqrt(Math.max(k, 0.02)));
+        const s = 0.5 * (1 - k) * local;
+        X[i] += R.normal() * s; Y[i] += R.normal() * s;
+        const r = Math.hypot(X[i], Y[i]);
+        if (r > LIM) { X[i] *= LIM / r; Y[i] *= LIM / r; }
+      }
+    }
+
+    // ---------- 3. marks in output pixels ----------
+    const S = pl.size, RP_ = pl.radius, D = pl.grain, rad = D / 2;
+    const lw = D * p.lineWeight, gap = (p.gap / 100) * D;
+    const PX = new Float64Array(N), PY = new Float64Array(N);
+    const UX = new Float64Array(N), UY = new Float64Array(N), HALF = new Float64Array(N);
+    let ox = 0, oy = 0;
+    if (p.radialFrom === 'light') { ox = L0; oy = L1; }
+    let halfMax = 0;
+    for (let i = 0; i < N; i++) {
+      const px = X[i], py = Y[i], pz = Math.sqrt(Math.max(0, 1 - px * px - py * py));
+      PX[i] = S / 2 + px * RP_; PY[i] = S / 2 - py * RP_;
+      let ux, uy;
+      if (p.direction === 'follow') {
+        const tx = -px * py, ty = 1 - py * py, n = Math.hypot(tx, ty) + 1e-9;
+        ux = tx / n; uy = -ty / n;
+      } else if (p.direction === 'radial') {
+        let rx = px - ox, ry = py - oy, n = Math.hypot(rx, ry);
+        const a = R() * 6.283185307179586;
+        if (n <= 0.03) { rx = Math.cos(a); ry = Math.sin(a); n = 1; }
+        ux = rx / n; uy = -ry / n;
+      } else { ux = 0; uy = 1; }
+      const w = (R.normal() * p.wiggle * Math.PI) / 180, c = Math.cos(w), s = Math.sin(w);
+      UX[i] = ux * c - uy * s; UY[i] = ux * s + uy * c;
+      const squash = p.direction === 'radial' ? 1 - p.foreshorten * (1 - pz) : 1;
+      HALF[i] = Math.max((D * p.lineLength * squash) / 2 - lw / 2, 0);
+      if (HALF[i] > halfMax) halfMax = HALF[i];
+    }
+
+    // ---------- 4. circle or line, never letting marks touch ----------
+    const wantLine = new Uint8Array(N);
+    for (let i = 0; i < N; i++) wantLine[i] = R() < p.lineShare ? 1 : 0;
+    const perm = (arr) => { for (let i = arr.length - 1; i > 0; i--) { const j = (R() * (i + 1)) | 0; const t = arr[i]; arr[i] = arr[j]; arr[j] = t; } return arr; };
+    const ls = [], cs2 = [];
+    for (let i = 0; i < N; i++) (wantLine[i] ? ls : cs2).push(i);
+    const order = perm(ls).concat(perm(cs2));   // lines claim space first
+
+    const reach = halfMax + Math.max(rad, lw / 2);
+    const cell = 2 * reach + gap + 1e-6, gdim = Math.max(1, Math.ceil(S / cell) + 1);
+    const { start, items } = buildGrid(PX, PY, N, 0, cell, gdim);
+    const shape = new Int8Array(N).fill(-2);      // -2 pending, 0 circle, 1 line, -1 dropped
+    for (let oi = 0; oi < N; oi++) {
+      const i = order[oi];
+      const gx = Math.min(gdim - 1, Math.max(0, (PX[i] / cell) | 0));
+      const gy = Math.min(gdim - 1, Math.max(0, (PY[i] / cell) | 0));
+      let placed = false;
+      for (let tryLine = wantLine[i]; tryLine >= 0 && !placed; tryLine--) {
+        const hi = tryLine ? HALF[i] : 0, ri = tryLine ? lw / 2 : rad;
+        const ax = PX[i] - UX[i] * hi, ay = PY[i] - UY[i] * hi, bx = PX[i] + UX[i] * hi, by = PY[i] + UY[i] * hi;
+        let clash = false;
+        for (let yy = gy - 1; yy <= gy + 1 && !clash; yy++) {
+          if (yy < 0 || yy >= gdim) continue;
+          for (let xx = gx - 1; xx <= gx + 1 && !clash; xx++) {
+            if (xx < 0 || xx >= gdim) continue;
+            const c = yy * gdim + xx;
+            for (let k = start[c], e = start[c + 1]; k < e; k++) {
+              const j = items[k], sj = shape[j];
+              if (sj < 0) continue;
+              const hj = sj === 1 ? HALF[j] : 0, rj = sj === 1 ? lw / 2 : rad;
+              const lim = ri + rj + gap;
+              const dx0 = PX[j] - PX[i], dy0 = PY[j] - PY[i];
+              const far = lim + hi + hj;
+              if (dx0 * dx0 + dy0 * dy0 >= far * far) continue;
+              const d2 = segDist2(ax, ay, bx, by,
+                PX[j] - UX[j] * hj, PY[j] - UY[j] * hj, PX[j] + UX[j] * hj, PY[j] + UY[j] * hj);
+              if (d2 < lim * lim) { clash = true; break; }
+            }
+          }
+        }
+        if (!clash) { shape[i] = tryLine ? 1 : 0; placed = true; }
+      }
+      if (!placed) shape[i] = p.clustering ? 0 : -1;
+      if ((oi & 0x3fff) === 0) await maybeYield(0.86 + 0.14 * (oi / N));
+    }
+
+    let circles = 0, lines = 0, dropped = 0;
+    for (let i = 0; i < N; i++) shape[i] === 0 ? circles++ : shape[i] === 1 ? lines++ : dropped++;
+    onProgress(1);
+    return {
+      size: S, plan: pl, grain: D, rad, lw, n: N, x: PX, y: PY, ux: UX, uy: UY, half: HALF, shape,
+      circles, lines, dropped, ms: Date.now() - t0,
+    };
+  }
+
+  // ---------- SVG ----------
+  const r1 = (v) => Math.round(v * 10) / 10, r2 = (v) => Math.round(v * 100) / 100;
+  function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  // inner markup for one result, scaled by k into the target coordinate space
+  function marks(res, p, mode, k = 1, dec = 2) {
+    const f = dec === 1 ? r1 : r2, col = esc(p.color);
+    const { x, y, ux, uy, half, shape, n } = res;
+    const c = [], l = [];
+    if (mode === 'compact') {
+      for (let i = 0; i < n; i++) {
+        if (shape[i] === 0) c.push(`M${f(x[i] * k)} ${f(y[i] * k)}h.01`);
+        else if (shape[i] === 1) {
+          const hx = ux[i] * half[i] * k, hy = uy[i] * half[i] * k;
+          l.push(`M${f(x[i] * k - hx)} ${f(y[i] * k - hy)}l${f(2 * hx)} ${f(2 * hy)}`);
+        }
+      }
+      return (c.length ? `<path fill="none" stroke="${col}" stroke-width="${r2(res.grain * k)}" stroke-linecap="round" d="${c.join('')}"/>` : '') +
+        (l.length ? `<path fill="none" stroke="${col}" stroke-width="${r2(res.lw * k)}" stroke-linecap="round" d="${l.join('')}"/>` : '');
+    }
+    const rr = r2(res.rad * k);
+    for (let i = 0; i < n; i++) {
+      if (shape[i] === 0) c.push(`<circle cx="${f(x[i] * k)}" cy="${f(y[i] * k)}" r="${rr}"/>`);
+      else if (shape[i] === 1) {
+        const hx = ux[i] * half[i], hy = uy[i] * half[i];
+        l.push(`<line x1="${f((x[i] - hx) * k)}" y1="${f((y[i] - hy) * k)}" x2="${f((x[i] + hx) * k)}" y2="${f((y[i] + hy) * k)}"/>`);
+      }
+    }
+    return `<g fill="${col}">${c.join('')}</g><g fill="none" stroke="${col}" stroke-width="${r2(res.lw * k)}" stroke-linecap="round">${l.join('')}</g>`;
+  }
+
+  function bgRect(p, w) { return p.background === 'none' ? '' : `<rect width="${w}" height="${w}" fill="${esc(p.background)}"/>`; }
+
+  function svg(res, p, mode = 'elements') {
+    const S = res.size, dec = S <= 512 ? 2 : 1;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">` +
+      `<!-- Comput · sphere · ${S}px · ${res.circles + res.lines} marks · grain ${r2(res.grain)}px · seed ${p.seed} -->` +
+      bgRect(p, S) + marks(res, p, mode, 1, dec) + `</svg>`;
+  }
+
+  // one SVG holding several levels of detail; media queries inside the SVG pick
+  // the level from the size the SVG is drawn at (works when used as <img>,
+  // <object> or a CSS background). Tools that ignore CSS show the default level.
+  function thresholds(sizes) {
+    const t = [];
+    for (let i = 0; i < sizes.length - 1; i++) t.push(Math.round(Math.sqrt(sizes[i] * sizes[i + 1])));
+    return t;
+  }
+  function responsiveSvg(results, p) {
+    const V = 1000;
+    results = results.slice().sort((a, b) => a.size - b.size);
+    const sizes = results.map((r) => r.size), t = thresholds(sizes);
+    const def = Math.floor((results.length - 1) / 2);
+    let css = '.c{display:none}';
+    results.forEach((r, i) => {
+      const q = [];
+      if (i > 0) q.push(`(min-width:${t[i - 1]}px)`);
+      if (i < results.length - 1) q.push(`(max-width:${t[i] - 0.02}px)`);
+      css += q.length ? `@media ${q.join(' and ')}{.c${i}{display:inline}}` : `.c${i}{display:inline}`;
+    });
+    const groups = results.map((r, i) =>
+      `<g class="c c${i}"${i === def ? '' : ' display="none"'} data-size="${r.size}">${marks(r, p, 'compact', V / r.size, 1)}</g>`).join('');
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${V} ${V}">` +
+      `<!-- Comput · responsive sphere · detail levels ${sizes.join('/')}px · switch at ${t.join('/')}px · seed ${p.seed} -->` +
+      `<style>${css}</style>` + bgRect(p, V) + groups + `</svg>`;
+  }
+
+  return { DEFAULTS, plan, generate, svg, responsiveSvg, thresholds, Cancelled };
+})();
+if (typeof module !== 'undefined') module.exports = Comput;
+
+</script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const D = Comput.DEFAULTS;
+  const SIZES = [32, 64, 128, 256, 512, 1024, 2048, 4096];
+  const KEY = 'comput.v1';
+  let p = { ...D };
+  let ui = { mode: 'single', view: 'fit', fmt: 'elements', lods: [128, 512, 2048], rspW: 512 };
+  try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) { p = { ...D, ...s.p }; ui = { ...ui, ...s.ui }; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ p, ui })); } catch (e) {} };
+
+  // ---------- slider rows ----------
+  const fmt = {
+    n: (d) => (v) => (+v).toFixed(d),
+    int: (v) => Math.round(v).toLocaleString('en-GB'),
+    px: (v) => `${(+v).toFixed(2)} px`,
+    pct: (v) => `${Math.round(v * 100)}%`,
+    frac: (v) => `1/${Math.round(v)}`,
+    deg: (v) => `${(+v).toFixed(0)}°`,
+  };
+  const ROWS = {
+    lawRows: [
+      ['growth', 'Mark size growth', 0, 1, 0.01, fmt.n(2), '0 keeps every 0 and 1 the same pixel size. 1 scales them with the logo, the old behaviour.'],
+      ['base', 'Base size', 32, 512, 1, (v) => `${Math.round(v)} px`, 'The size where the logo matches the original script.'],
+      ['baseMarks', 'Marks at base size', 500, 12000, 50, fmt.int],
+      ['grainBase', 'Mark size at base', 30, 160, 1, fmt.frac, 'Circle diameter as a share of the sphere width.'],
+      ['minGrain', 'Smallest mark', 0.3, 3, 0.05, fmt.px, 'Below this, small logos use fewer, larger marks so the 0s and 1s stay readable.'],
+      ['maxMarks', 'Most marks', 10000, 400000, 5000, fmt.int, 'Past this the marks grow instead. Big counts mean big files.'],
+    ],
+    lightRows: [
+      ['lightX', 'Light left / right', -1, 1, 0.01, fmt.n(2)],
+      ['lightY', 'Light bottom / top', -1, 1, 0.01, fmt.n(2)],
+      ['shadowPacking', 'Shadow packing', 0, 12, 0.1, fmt.n(1)],
+      ['rimPacking', 'Rim packing', 0, 12, 0.1, fmt.n(1)],
+    ],
+    diffRows: [
+      ['centre', 'Centre density', 0, 100, 1, (v) => `${Math.round(v)}%`, '100% is the original. Slide down to thin out the middle. Cross thins outwards from the centre, Hamburger thins a band across the middle and keeps the top and bottom packed.'],
+      ['centreReach', 'Reach', 0, 100, 1, (v) => `${Math.round(v)}%`, 'How far towards the rim the thinning spreads.'],
+    ],
+    markRows1: [
+      ['lineShare', 'Share of lines (1s)', 0, 1, 0.01, fmt.pct],
+      ['lineLength', 'Line length', 1, 4, 0.05, (v) => `${(+v).toFixed(2)}×`],
+      ['lineWeight', 'Line weight', 0.3, 1.2, 0.01, (v) => `${(+v).toFixed(2)}×`],
+    ],
+    markRows2: [
+      ['foreshorten', 'Foreshorten', 0, 1, 0.01, fmt.n(2)],
+      ['organic', 'Organic', 0, 1, 0.01, fmt.n(2), '0 is even and orderly, 1 is a loose natural scatter.'],
+      ['wiggle', 'Angle wiggle', 0, 30, 1, fmt.deg],
+      ['gap', 'Gap between marks', 0, 40, 1, (v) => `${Math.round(v)}% of mark`],
+    ],
+  };
+  const inputs = {};
+  for (const [host, rows] of Object.entries(ROWS)) {
+    const el = $(host);
+    for (const [k, label, min, max, step, f, hint] of rows) {
+      const row = document.createElement('div'); row.className = 'row';
+      const id = 'r_' + k;
+      row.innerHTML = `<label for="${id}">${label}</label><output class="num" for="${id}"></output>` +
+        `<input type="range" id="${id}" min="${min}" max="${max}" step="${step}">` + (hint ? `<p class="hint">${hint}</p>` : '');
+      el.appendChild(row);
+      const inp = row.querySelector('input'), out = row.querySelector('output');
+      inputs[k] = { inp, out, f };
+      inp.addEventListener('input', () => { p[k] = +inp.value; out.textContent = f(p[k]); changed(k); });
+    }
+  }
+
+  function seg(host, opts, get, set) {
+    const el = $(host);
+    if (opts) el.innerHTML = opts.map(([v, t]) => `<button data-v="${v}" aria-pressed="false">${t}</button>`).join('');
+    const sync = () => el.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === get()));
+    el.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; set(b.dataset.v); sync(); });
+    sync(); return sync;
+  }
+  const syncDir = seg('dirSeg', [['radial', 'Radial'], ['follow', 'Follow'], ['vertical', 'Upright']], () => p.direction, (v) => { p.direction = v; changed('direction'); });
+  const syncFrom = seg('fromSeg', [['centre', 'Centre'], ['light', 'Light spot']], () => p.radialFrom, (v) => { p.radialFrom = v; changed('radialFrom'); });
+  const syncDiff = seg('diffSeg', [['cross', 'Cross'], ['hamburger', 'Hamburger']], () => p.centreMode, (v) => { p.centreMode = v; changed('centreMode'); });
+  const syncMode = seg('modeSeg', null, () => ui.mode, (v) => { ui.mode = v; save(); applyMode(); });
+  const syncView = seg('viewSeg', null, () => ui.view, (v) => { ui.view = v; save(); layout(); });
+  const syncFmt = seg('fmtSeg', null, () => ui.fmt, (v) => { ui.fmt = v; save(); });
+
+  // size chips
+  $('sizeChips').innerHTML = SIZES.map((s) => `<button class="chip" data-s="${s}">${s >= 1024 ? s / 1024 + 'K' : s}</button>`).join('');
+  $('sizeChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; p.size = +b.dataset.s; $('size').value = p.size; changed('size'); });
+  $('size').addEventListener('change', () => { p.size = Math.max(16, Math.min(8192, Math.round(+$('size').value || 512))); $('size').value = p.size; changed('size'); });
+  $('lodChips').innerHTML = SIZES.map((s) => `<button class="chip" data-s="${s}">${s >= 1024 ? s / 1024 + 'K' : s}</button>`).join('');
+  $('lodChips').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return; const s = +b.dataset.s;
+    const has = ui.lods.includes(s);
+    if (has && ui.lods.length <= 1) return toast('Keep at least one detail level');
+    ui.lods = has ? ui.lods.filter((x) => x !== s) : [...ui.lods, s].sort((a, b) => a - b);
+    save(); syncAll(); schedule();
+  });
+
+  // colour
+  const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+  const full = (h) => h.length === 4 ? '#' + [...h.slice(1)].map((c) => c + c).join('') : h;
+  $('color').addEventListener('change', () => { const v = $('color').value.trim(); if (HEX.test(v)) { p.color = v; changed('color'); } else syncAll(); });
+  $('colorPick').addEventListener('input', () => { p.color = $('colorPick').value; changed('color'); });
+  let lastBg = p.background === 'none' ? '#2f2f2f' : p.background;
+  $('bg').addEventListener('change', () => { const v = $('bg').value.trim(); if (HEX.test(v)) { p.background = lastBg = v; changed('background'); } else syncAll(); });
+  $('bgPick').addEventListener('input', () => { p.background = lastBg = $('bgPick').value; changed('background'); });
+  $('transparent').addEventListener('change', () => { p.background = $('transparent').checked ? 'none' : lastBg; changed('background'); });
+  $('clustering').addEventListener('change', () => { p.clustering = $('clustering').checked; changed('clustering'); });
+  $('seed').addEventListener('change', () => { p.seed = Math.max(0, Math.round(+$('seed').value || 0)); changed('seed'); });
+  $('shuffle').addEventListener('click', () => { p.seed = Math.floor(Math.random() * 9999); changed('seed'); });
+  $('reset').addEventListener('click', () => { p = { ...D, size: p.size }; changed('all'); toast('Settings reset'); });
+  $('theme').addEventListener('click', () => {
+    const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    r.dataset.theme = dark ? 'light' : 'dark'; drawLaw();
+  });
+
+  function syncAll() {
+    for (const [k, { inp, out, f }] of Object.entries(inputs)) { inp.value = p[k]; out.textContent = f(p[k]); }
+    $('size').value = p.size;
+    $('sizeChips').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', +b.dataset.s === p.size));
+    $('lodChips').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', ui.lods.includes(+b.dataset.s)));
+    $('color').value = p.color; $('colorPick').value = full(p.color);
+    const bgv = p.background === 'none' ? lastBg : p.background;
+    $('bg').value = bgv; $('bgPick').value = full(bgv); $('transparent').checked = p.background === 'none';
+    $('bg').disabled = $('bgPick').disabled = p.background === 'none';
+    $('clustering').checked = p.clustering; $('seed').value = p.seed;
+    $('hSeed').textContent = String(p.seed).padStart(3, '0');
+    $('fromRow').hidden = $('fromSeg').hidden = p.direction !== 'radial';
+    inputs.foreshorten.inp.parentElement.hidden = p.direction !== 'radial';
+    $('diffTag').textContent = p.centre >= 100 ? 'Off' : `${100 - Math.round(p.centre)}% diffused`;
+    inputs.centreReach.inp.parentElement.classList.toggle('dim', p.centre >= 100);
+    $('lawFormula').textContent = `mark ∝ size^${(+p.growth).toFixed(2)}`;
+    syncDir(); syncFrom(); syncDiff(); syncMode(); syncView(); syncFmt();
+  }
+
+  // ---------- scaling law chart ----------
+  function drawLaw() {
+    const W = 300, H = 132, l = 30, r = 8, t = 16, b = 22;
+    const x0 = Math.log2(16), x1 = Math.log2(4096);
+    const X = (s) => l + ((Math.log2(s) - x0) / (x1 - x0)) * (W - l - r);
+    const pts = [], old = [];
+    for (let e = x0; e <= x1 + 1e-9; e += 0.05) { const s = 2 ** e; pts.push([s, Comput.plan(p, s).grain]); old.push([s, (2 * 0.44 * s) / p.grainBase]); }
+    const ymaxRaw = Math.max(...pts.map((q) => q[1])) * 1.5;
+    const step = ymaxRaw <= 4 ? 1 : ymaxRaw <= 10 ? 2 : ymaxRaw <= 25 ? 5 : 10;
+    const ymax = Math.ceil(ymaxRaw / step) * step;
+    const Y = (v) => H - b - (v / ymax) * (H - t - b);
+    let s = `<defs><clipPath id="lc"><rect x="${l}" y="${t}" width="${W - l - r}" height="${H - t - b}"/></clipPath></defs>`;
+    for (let v = 0; v <= ymax + 1e-9; v += step) s += `<line class="grid" x1="${l}" x2="${W - r}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${l - 6}" y="${Y(v) + 3}" text-anchor="end">${v}</text>`;
+    for (const sz of [16, 64, 256, 1024, 4096]) s += `<text x="${X(sz)}" y="${H - 6}" text-anchor="middle">${sz >= 1024 ? sz / 1024 + 'K' : sz}</text>`;
+    s += `<line class="ax" x1="${l}" x2="${W - r}" y1="${H - b}" y2="${H - b}"/>`;
+    const path = (a) => a.map((q, i) => `${i ? 'L' : 'M'}${X(q[0]).toFixed(1)} ${Y(q[1]).toFixed(1)}`).join('');
+    s += `<g clip-path="url(#lc)"><path class="old" d="${path(old)}"/><path class="cur" d="${path(pts)}"/></g>`;
+    const cg = Comput.plan(p, p.size);
+    if (p.size >= 16 && p.size <= 4096) s += `<circle class="dot" cx="${X(p.size)}" cy="${Y(cg.grain)}" r="3.5"/>`;
+    s += `<text x="${l}" y="9">MARK PX</text><text x="${W - r}" y="9" text-anchor="end"><tspan class="lg">— now</tspan>   - - - original</text>`;
+    $('lawChart').innerHTML = s;
+  }
+
+  // ---------- generation ----------
+  let job = 0, single = null, rsp = null, rspUrl = null, rspSvgText = '', rspResults = [], dirty = { single: true, rsp: true }, timer = 0;
+  const NO_REGEN = new Set(['color', 'background']);
+  function changed(k) {
+    save(); syncAll(); drawLaw();
+    if (NO_REGEN.has(k)) { if (single) draw(single); if (rspResults.length) composeRsp(); return; }
+    if (k === 'size') { dirty.single = true; } else { dirty.single = dirty.rsp = true; }
+    schedule();
+  }
+  function schedule() { clearTimeout(timer); timer = setTimeout(run, 180); }
+
+  function busy(on, txt, frac) {
+    $('status').classList.toggle('busy', on);
+    $('statusText').textContent = txt;
+    $('bar').style.width = on ? `${Math.round((frac || 0) * 100)}%` : '0%';
+  }
+
+  async function run() {
+    const my = ++job, cancelled = () => my !== job;
+    try {
+      if (ui.mode === 'single') {
+        if (!dirty.single && single && single.size === p.size) return;
+        const pl = Comput.plan(p, p.size);
+        busy(true, `Computing ${pl.n.toLocaleString('en-GB')} marks`, 0);
+        const r = await Comput.generate(p, p.size, { cancelled, onProgress: (f) => busy(true, `Computing ${pl.n.toLocaleString('en-GB')} marks · ${Math.round(f * 100)}%`, f) });
+        if (cancelled()) return;
+        single = r; dirty.single = false; draw(r); reads(); busy(false, 'Ready');
+      } else {
+        const sizes = ui.lods.slice().sort((a, b) => a - b), out = [];
+        for (let i = 0; i < sizes.length; i++) {
+          const pl = Comput.plan(p, sizes[i]);
+          const r = await Comput.generate(p, sizes[i], { cancelled, onProgress: (f) => busy(true, `Level ${i + 1}/${sizes.length} · ${sizes[i]} px · ${Math.round(f * 100)}%`, (i + f) / sizes.length) });
+          if (cancelled()) return;
+          out.push(r);
+        }
+        rspResults = out; dirty.rsp = false; composeRsp(); busy(false, 'Ready');
+      }
+    } catch (e) {
+      if (e instanceof Comput.Cancelled) return;
+      console.error(e); busy(false, 'Error: ' + e.message);
+    }
+  }
+
+  function composeRsp() {
+    rspSvgText = Comput.responsiveSvg(rspResults, p);
+    if (rspUrl) URL.revokeObjectURL(rspUrl);
+    rspUrl = URL.createObjectURL(new Blob([rspSvgText], { type: 'image/svg+xml' }));
+    $('rspImg').src = rspUrl; layout(); reads();
+  }
+
+  // ---------- drawing ----------
+  function viewScale(size) {
+    if (ui.view === 'one') return 1;
+    const v = $('view'), w = v.clientWidth - 44, h = v.clientHeight - 60;
+    return Math.max(0.02, Math.min(1, Math.min(w, h > 80 ? h : w) / size));
+  }
+  function draw(r) {
+    const cv = $('cv'), vs = viewScale(r.size), css = r.size * vs;
+    const dpr = Math.min(window.devicePixelRatio || 1, 6000 / css), px = Math.max(1, Math.round(css * dpr));
+    cv.width = px; cv.height = px; cv.style.width = css + 'px'; cv.style.height = css + 'px';
+    const ctx = cv.getContext('2d'), k = px / r.size;
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, px, px);
+    if (p.background !== 'none') { ctx.fillStyle = p.background; ctx.fillRect(0, 0, px, px); }
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    const { x, y, ux, uy, half, shape, n, rad } = r;
+    ctx.fillStyle = p.color; ctx.beginPath();
+    for (let i = 0; i < n; i++) if (shape[i] === 0) { ctx.moveTo(x[i] + rad, y[i]); ctx.arc(x[i], y[i], rad, 0, 6.2832); }
+    ctx.fill();
+    ctx.strokeStyle = p.color; ctx.lineWidth = r.lw; ctx.lineCap = 'round'; ctx.beginPath();
+    for (let i = 0; i < n; i++) if (shape[i] === 1) { const hx = ux[i] * half[i], hy = uy[i] * half[i]; ctx.moveTo(x[i] - hx, y[i] - hy); ctx.lineTo(x[i] + hx, y[i] + hy); }
+    ctx.stroke();
+    $('boardTag').textContent = `${r.size} × ${r.size} PX · VIEW ${Math.round(vs * 100)}%`;
+  }
+
+  // responsive width slider: log scale 32 … 3000
+  const RW0 = Math.log(32), RW1 = Math.log(3000);
+  const toW = (v) => Math.round(Math.exp(RW0 + (v / 1000) * (RW1 - RW0)));
+  const fromW = (w) => Math.round(((Math.log(w) - RW0) / (RW1 - RW0)) * 1000);
+  $('rspW').addEventListener('input', () => { ui.rspW = toW(+$('rspW').value); save(); layout(); reads(); });
+
+  function activeLevel(w) {
+    const sizes = rspResults.map((r) => r.size), t = Comput.thresholds(sizes);
+    let i = 0; while (i < t.length && w >= t[i]) i++;
+    return rspResults[i];
+  }
+
+  function layout() {
+    const v = $('view');
+    v.classList.toggle('one', ui.view === 'one');
+    if (ui.mode === 'single') { if (single) draw(single); }
+    else {
+      const w = ui.rspW; $('rspW').value = fromW(w); $('rspWOut').textContent = `${w} PX`;
+      const img = $('rspImg'); img.style.width = w + 'px'; img.style.height = w + 'px';
+      const a = rspResults.length ? activeLevel(w) : null;
+      $('boardTag').textContent = a ? `DRAWN AT ${w} PX · DETAIL LEVEL ${a.size} PX` : 'BUILDING…';
+    }
+  }
+
+  function kb(n) { return n > 1e6 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; }
+  function reads() {
+    const el = $('reads');
+    const cell = (k, v) => `<div><span class="lab mute">${k}</span><span class="v">${v}</span></div>`;
+    if (ui.mode === 'single') {
+      if (!single) { el.innerHTML = ''; return; }
+      const r = single;
+      el.innerHTML = cell('Size', `${r.size} px`) + cell('Marks', (r.circles + r.lines).toLocaleString('en-GB')) +
+        cell('0 / 1', `${r.circles.toLocaleString('en-GB')} / ${r.lines.toLocaleString('en-GB')}`) +
+        cell('Mark size', `${r.grain.toFixed(2)} px`) + cell('Time', `${(r.ms / 1000).toFixed(1)} s`);
+    } else {
+      if (!rspResults.length) { el.innerHTML = ''; return; }
+      const a = activeLevel(ui.rspW), tot = rspResults.reduce((s, r) => s + r.circles + r.lines, 0);
+      el.innerHTML = cell('Levels', rspResults.map((r) => r.size).join(' / ')) +
+        cell('Active', `${a.size} px · ${(a.circles + a.lines).toLocaleString('en-GB')}`) +
+        cell('Mark size now', `${(a.grain * ui.rspW / a.size).toFixed(2)} px`) +
+        cell('Total marks', tot.toLocaleString('en-GB')) + cell('File', kb(new Blob([rspSvgText]).size));
+    }
+  }
+
+  function applyMode() {
+    const r = ui.mode === 'responsive';
+    $('rspCtl').hidden = !r; $('actRsp').hidden = !r; $('actSingle').hidden = r;
+    $('cv').hidden = r; $('rspImg').hidden = !r; $('viewSeg').hidden = r;
+    syncAll(); layout(); reads(); schedule();
+  }
+
+  // ---------- export ----------
+  const downloadsP = window.claude && window.claude.use ? window.claude.use('downloads').catch(() => null) : Promise.resolve(null);
+  async function saveFile(filename, text) {
+    const dl = await downloadsP;
+    if (dl) {
+      try { await dl.save({ filename, data: new Blob([text], { type: 'image/svg+xml' }) }); toast(`Saved ${filename}`); }
+      catch (e) { if (e && e.code !== 'declined') toast(e.code === 'unavailable' ? 'Saving is not available in this view' : 'Could not save the file'); }
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'image/svg+xml' })); a.download = filename;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    toast(`Saved ${filename}`);
+  }
+  $('export').addEventListener('click', () => {
+    if (!single || dirty.single) return toast('Still computing, try again in a moment');
+    saveFile(`comput-sphere-${single.size}px-seed${p.seed}${ui.fmt === 'compact' ? '-compact' : ''}.svg`, Comput.svg(single, p, ui.fmt));
+  });
+  $('exportRsp').addEventListener('click', () => {
+    if (!rspResults.length || dirty.rsp) return toast('Still computing, try again in a moment');
+    saveFile(`comput-sphere-responsive-${rspResults.map((r) => r.size).join('-')}-seed${p.seed}.svg`, rspSvgText);
+  });
+
+  let tt = 0;
+  function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('on'), 2200); }
+
+  // header mark: the logo itself at 30 px
+  (async () => {
+    const r = await Comput.generate({ ...D, color: '#000' }, 30);
+    const cv = $('mini'), ctx = cv.getContext('2d'), k = cv.width / 30;
+    const paint = () => {
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height); ctx.setTransform(k, 0, 0, k, 0, 0);
+      const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
+      ctx.fillStyle = ink; ctx.beginPath();
+      for (let i = 0; i < r.n; i++) if (r.shape[i] >= 0) { ctx.moveTo(r.x[i] + r.rad, r.y[i]); ctx.arc(r.x[i], r.y[i], r.rad, 0, 6.2832); }
+      ctx.fill();
+    };
+    paint(); new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paint);
+  })();
+
+  let rz = 0;
+  window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(layout, 120); });
+  syncAll(); drawLaw(); applyMode();
+})();
+</script>

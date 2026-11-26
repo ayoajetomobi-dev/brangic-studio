@@ -1,0 +1,582 @@
+<title>Comput</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&display=swap">
+<style>
+/* Layout: instrument panel. Header strip, control column of rounded modules, square artboard stage. Monochrome only. */
+:root {
+  --bg: #e3e5e0;        /* pale instrument grey */
+  --panel: #ecedea;     /* module surface */
+  --ink: #121312;       /* black ink */
+  --mute: #6a6e68;      /* secondary readout */
+  --rule: #c9ccc6;      /* hairlines on panel */
+  --fill: #d5d8d2;      /* slider track / chip off */
+  --board: #f4f5f2;     /* transparent-artboard paper */
+  --board-2: #e9eae6;   /* checker */
+  --font: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0a0a0a; --panel: #1a1b1a; --ink: #eceeea; --mute: #8b8f89; --rule: #2d2f2d; --fill: #2b2d2b;
+  --board: #f4f5f2; --board-2: #e9eae6; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0a0a0a; --panel: #1a1b1a; --ink: #eceeea; --mute: #8b8f89; --rule: #2d2f2d; --fill: #2b2d2b;
+  --board: #f4f5f2; --board-2: #e9eae6; color-scheme: dark }
+
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+html, body { height: 100% }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 13px; line-height: 1.35;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 14px 16px; -webkit-font-smoothing: antialiased;
+}
+button, input, select { font: inherit; color: inherit }
+.lab { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; font-weight: 500 }
+.num { font-variant-numeric: tabular-nums }
+.mute { color: var(--mute) }
+
+.app { display: grid; grid-template-rows: auto 1fr; gap: 14px; height: 100%; max-width: 1480px; margin: 0 auto }
+header { display: flex; align-items: center; gap: 14px; min-height: 40px; border-bottom: 1px solid var(--ink); padding-bottom: 12px }
+.brand { display: flex; align-items: center; gap: 10px }
+.brand canvas { width: 30px; height: 30px; display: block }
+.brand b { font-size: 20px; font-weight: 500; letter-spacing: .14em }
+.hdr-read { display: flex; gap: 22px; margin-left: auto; align-items: center; flex-wrap: wrap; justify-content: flex-end }
+.hdr-read span { white-space: nowrap }
+.iconbtn { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--ink); background: transparent; display: grid; place-items: center; cursor: pointer; padding: 0 }
+.iconbtn svg { width: 14px; height: 14px }
+
+.main { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 14px; min-height: 0 }
+.controls { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; scrollbar-width: thin }
+
+.mod { background: var(--panel); border-radius: 22px; padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 12px }
+.mod-h { display: flex; align-items: baseline; justify-content: space-between; gap: 10px }
+.mod-h .lab { font-weight: 600 }
+.mod p.hint { margin: -4px 0 0; color: var(--mute); font-size: 12px; text-wrap: pretty }
+
+.rows { display: flex; flex-direction: column; gap: 12px }
+.row { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center }
+.row label { font-size: 12px }
+.row output { font-size: 12px; text-align: right; min-width: 3.5em }
+.row input[type=range] { grid-column: 1 / -1 }
+.row.dim { opacity: .45 }
+.row .hint { grid-column: 1 / -1; color: var(--mute); font-size: 11px; margin: 0 }
+
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; margin: 0; cursor: pointer }
+input[type=range]::-webkit-slider-runnable-track { height: 1px; background: var(--ink) }
+input[type=range]::-moz-range-track { height: 1px; background: var(--ink) }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%; background: var(--ink); margin-top: -6px; border: 0 }
+input[type=range]::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: var(--ink); border: 0 }
+input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset: 3px }
+
+.seg { display: flex; border: 1px solid var(--ink); border-radius: 999px; padding: 2px; gap: 2px }
+.seg button { flex: 1; border: 0; background: transparent; border-radius: 999px; padding: 6px 8px; cursor: pointer; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 500; white-space: nowrap }
+.seg button[aria-pressed=true] { background: var(--ink); color: var(--panel) }
+.seg button:focus-visible, .chip:focus-visible, .btn:focus-visible, .iconbtn:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px }
+.chip { border: 1px solid var(--ink); background: transparent; border-radius: 999px; padding: 5px 10px; font-size: 11.5px; cursor: pointer; font-variant-numeric: tabular-nums }
+.chip[aria-pressed=true] { background: var(--ink); color: var(--panel) }
+
+.field { display: flex; align-items: center; gap: 8px; border: 1px solid var(--ink); border-radius: 999px; padding: 4px 6px 4px 14px }
+.field input { border: 0; background: transparent; width: 100%; min-width: 0; font-size: 15px; outline: none; font-variant-numeric: tabular-nums }
+.field .unit { font-size: 10.5px; letter-spacing: .08em; color: var(--mute) }
+.field input[type=color] { width: 26px; height: 26px; padding: 0; border-radius: 50%; overflow: hidden; flex: none; cursor: pointer }
+.field input[type=color]::-webkit-color-swatch-wrapper { padding: 0 } .field input[type=color]::-webkit-color-swatch { border: 0; border-radius: 50% }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; cursor: pointer }
+.toggle input { appearance: none; -webkit-appearance: none; width: 34px; height: 20px; border: 1px solid var(--ink); border-radius: 999px; position: relative; cursor: pointer; margin: 0; flex: none }
+.toggle input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--ink); transition: left .15s }
+.toggle input:checked { background: var(--ink) } .toggle input:checked::after { left: 17px; background: var(--panel) }
+.toggle input:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px }
+
+/* law chart */
+.law svg { width: 100%; height: auto; display: block; overflow: visible }
+.law .ax { stroke: var(--ink); stroke-width: 1 } .law .grid { stroke: var(--rule); stroke-width: 1 }
+.law text { fill: var(--mute); font-size: 9px; font-family: var(--font) }
+.law .cur { stroke: var(--ink); stroke-width: 1.5; fill: none } .law .old { stroke: var(--mute); stroke-width: 1; stroke-dasharray: 3 3; fill: none }
+.law .dot { fill: var(--ink) } .law .lg { fill: var(--ink) }
+
+/* stage */
+.stage { background: var(--panel); border-radius: 22px; display: flex; flex-direction: column; min-height: 0; overflow: hidden }
+.stage-top { display: flex; align-items: center; gap: 12px; padding: 12px 14px 12px 18px; border-bottom: 1px solid var(--rule); flex-wrap: wrap }
+.stage-top .seg { min-width: 240px }
+.status { margin-left: auto; display: flex; align-items: center; gap: 8px }
+.pulse { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--ink) }
+.busy .pulse { background: var(--ink); animation: blink .8s steps(2) infinite }
+@keyframes blink { 50% { opacity: .2 } }
+@media (prefers-reduced-motion: reduce) { .busy .pulse { animation: none } }
+.bar { height: 1px; background: var(--rule); position: relative }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); width: 0 }
+
+.view { position: relative; overflow: auto; flex: 1; min-height: 0; display: grid; place-items: center; padding: 22px }
+.board { position: relative; background-color: var(--board);
+  background-image: linear-gradient(45deg, var(--board-2) 25%, transparent 25%, transparent 75%, var(--board-2) 75%), linear-gradient(45deg, var(--board-2) 25%, transparent 25%, transparent 75%, var(--board-2) 75%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px; outline: 1px solid var(--rule) }
+.board canvas, .board img { display: block }
+.board .tag { position: absolute; left: 0; top: -18px; font-size: 10px; letter-spacing: .08em; color: var(--mute); white-space: nowrap }
+.view.one .board { margin: auto }
+
+.stage-foot { display: flex; align-items: center; gap: 14px 22px; padding: 12px 14px 14px 18px; border-top: 1px solid var(--rule); flex-wrap: wrap }
+.reads { display: flex; gap: 6px 22px; flex-wrap: wrap }
+.reads div { display: flex; flex-direction: column; gap: 2px }
+.reads .v { font-size: 15px; font-variant-numeric: tabular-nums }
+.actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+.btn { border: 1px solid var(--ink); border-radius: 999px; padding: 10px 18px; background: var(--ink); color: var(--panel); cursor: pointer; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; font-weight: 600; display: inline-flex; gap: 8px; align-items: center }
+.btn.ghost { background: transparent; color: var(--ink) }
+.btn[disabled] { opacity: .4; cursor: default }
+.note { font-size: 11.5px; color: var(--mute); max-width: 52ch; text-wrap: pretty }
+.toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--panel); padding: 9px 16px; border-radius: 999px; font-size: 12px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 5 }
+.toast.on { opacity: 1 }
+
+.rsp-ctl { display: flex; gap: 10px 18px; align-items: center; padding: 10px 14px 10px 18px; border-bottom: 1px solid var(--rule); flex-wrap: wrap }
+.rsp-ctl .w { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 220px }
+.rsp-ctl input[type=range] { flex: 1 }
+
+@media (max-width: 900px) {
+  html, body { height: auto }
+  .app { height: auto }
+  .main { grid-template-columns: 1fr }
+  .stage { order: -1; min-height: 0 }
+  .view { min-height: 78vw; max-height: 80vh }
+  .controls { overflow: visible; padding-right: 0 }
+  .opt { display: none }
+}
+</style>
+
+<div class="app">
+  <header>
+    <div class="brand"><canvas id="mini" width="60" height="60" aria-hidden="true"></canvas><b>COMPUT</b></div>
+    <span class="lab mute opt">Generator / Sphere / v0.1</span>
+    <div class="hdr-read lab">
+      <span class="opt">Output: SVG</span>
+      <span class="opt">Seed <span id="hSeed" class="num">003</span></span>
+      <button class="iconbtn" id="theme" title="Switch light or dark interface" aria-label="Switch light or dark interface">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><circle cx="8" cy="8" r="6.5"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="main">
+    <aside class="controls" id="controls">
+      <section class="mod">
+        <div class="mod-h"><span class="lab">Output size</span><span class="lab mute">Px</span></div>
+        <div class="field"><input id="size" type="number" min="16" max="8192" step="1" inputmode="numeric" aria-label="Output size in pixels"><span class="unit">PX</span></div>
+        <div class="chips" id="sizeChips"></div>
+      </section>
+
+      <section class="mod law">
+        <div class="mod-h"><span class="lab">Scaling law</span><span class="lab mute" id="lawFormula">mark ∝ size^0.50</span></div>
+        <p class="hint">As the logo gets bigger each 0 and 1 shrinks relative to it and more of them fill in, so the shading stays the same.</p>
+        <svg id="lawChart" viewBox="0 0 300 132" role="img" aria-label="Mark size in pixels against output size"></svg>
+        <div class="rows" id="lawRows"></div>
+      </section>
+
+      <section class="mod">
+        <div class="mod-h"><span class="lab">Light</span></div>
+        <div class="rows" id="lightRows"></div>
+      </section>
+
+      <section class="mod">
+        <div class="mod-h"><span class="lab">Centre diffusion</span><span class="lab mute" id="diffTag">Off</span></div>
+        <div class="seg" id="diffSeg" role="group" aria-label="Diffusion pattern"></div>
+        <div class="rows" id="diffRows"></div>
+      </section>
+
+      <section class="mod">
+        <div class="mod-h"><span class="lab">Marks / 0 + 1</span></div>
+        <div class="rows" id="markRows1"></div>
+        <div class="row"><label>Line direction</label><span></span></div>
+        <div class="seg" id="dirSeg"></div>
+        <div class="row" id="fromRow"><label>Burst from</label><span></span></div>
+        <div class="seg" id="fromSeg"></div>
+        <div class="rows" id="markRows2"></div>
+        <label class="toggle">Clump in the shadow<input type="checkbox" id="clustering"></label>
+      </section>
+
+      <section class="mod">
+        <div class="mod-h"><span class="lab">Colour</span></div>
+        <div class="pair">
+          <div class="field"><span class="unit">MARK</span><input id="color" type="text" spellcheck="false" aria-label="Mark colour hex"><input id="colorPick" type="color" aria-label="Pick mark colour"></div>
+          <div class="field"><span class="unit">BG</span><input id="bg" type="text" spellcheck="false" aria-label="Background colour hex"><input id="bgPick" type="color" aria-label="Pick background colour"></div>
+        </div>
+        <label class="toggle">Transparent background<input type="checkbox" id="transparent"></label>
+      </section>
+
+      <section class="mod">
+        <div class="mod-h"><span class="lab">Seed</span><span class="lab mute">Arrangement</span></div>
+        <div class="pair">
+          <div class="field"><input id="seed" type="number" min="0" max="99999" step="1" aria-label="Seed"><span class="unit">#</span></div>
+          <button class="btn ghost" id="shuffle">Shuffle</button>
+        </div>
+        <button class="btn ghost" id="reset">Reset all settings</button>
+      </section>
+    </aside>
+
+    <section class="stage" id="stage">
+      <div class="stage-top">
+        <div class="seg" id="modeSeg" role="group" aria-label="Mode">
+          <button data-v="single" aria-pressed="true">Single size</button>
+          <button data-v="responsive" aria-pressed="false">Responsive</button>
+        </div>
+        <div class="seg" id="viewSeg" role="group" aria-label="Zoom" style="min-width:140px">
+          <button data-v="fit" aria-pressed="true">Fit</button>
+          <button data-v="one" aria-pressed="false">1:1</button>
+        </div>
+        <div class="status lab" id="status"><span class="pulse"></span><span id="statusText">Ready</span></div>
+      </div>
+      <div class="rsp-ctl" id="rspCtl" hidden>
+        <span class="lab">Detail levels</span>
+        <div class="chips" id="lodChips"></div>
+        <div class="w"><span class="lab">Draw at</span><input type="range" id="rspW" min="0" max="1000" step="1" aria-label="Width the responsive SVG is drawn at"><output class="num" id="rspWOut" style="min-width:5em;text-align:right">512 PX</output></div>
+      </div>
+      <div class="bar"><i id="bar"></i></div>
+      <div class="view" id="view">
+        <div class="board" id="board"><span class="tag lab" id="boardTag"></span><canvas id="cv"></canvas><img id="rspImg" alt="Responsive sphere logo preview" hidden></div>
+      </div>
+      <div class="stage-foot">
+        <div class="reads" id="reads"></div>
+        <div class="actions" id="actSingle">
+          <div class="seg" id="fmtSeg" role="group" aria-label="SVG format" title="Elements: circles and lines, best for Figma and Illustrator. Compact: two paths, about 3x smaller, best for the web.">
+            <button data-v="elements" aria-pressed="true">Elements</button>
+            <button data-v="compact" aria-pressed="false">Compact</button>
+          </div>
+          <button class="btn" id="export">Export SVG</button>
+        </div>
+        <div class="actions" id="actRsp" hidden>
+          <span class="note" id="rspNote">Use as &lt;img&gt;, &lt;object&gt; or CSS background. Detail switches with the drawn size. Inline &lt;svg&gt; and design tools show the middle level only.</span>
+          <button class="btn" id="exportRsp">Export responsive SVG</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/*ENGINE*/
+</script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const D = Comput.DEFAULTS;
+  const SIZES = [32, 64, 128, 256, 512, 1024, 2048, 4096];
+  const KEY = 'comput.v1';
+  let p = { ...D };
+  let ui = { mode: 'single', view: 'fit', fmt: 'elements', lods: [128, 512, 2048], rspW: 512 };
+  try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) { p = { ...D, ...s.p }; ui = { ...ui, ...s.ui }; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ p, ui })); } catch (e) {} };
+
+  // ---------- slider rows ----------
+  const fmt = {
+    n: (d) => (v) => (+v).toFixed(d),
+    int: (v) => Math.round(v).toLocaleString('en-GB'),
+    px: (v) => `${(+v).toFixed(2)} px`,
+    pct: (v) => `${Math.round(v * 100)}%`,
+    frac: (v) => `1/${Math.round(v)}`,
+    deg: (v) => `${(+v).toFixed(0)}°`,
+  };
+  const ROWS = {
+    lawRows: [
+      ['growth', 'Mark size growth', 0, 1, 0.01, fmt.n(2), '0 keeps every 0 and 1 the same pixel size. 1 scales them with the logo, the old behaviour.'],
+      ['base', 'Base size', 32, 512, 1, (v) => `${Math.round(v)} px`, 'The size where the logo matches the original script.'],
+      ['baseMarks', 'Marks at base size', 500, 12000, 50, fmt.int],
+      ['grainBase', 'Mark size at base', 30, 160, 1, fmt.frac, 'Circle diameter as a share of the sphere width.'],
+      ['minGrain', 'Smallest mark', 0.3, 3, 0.05, fmt.px, 'Below this, small logos use fewer, larger marks so the 0s and 1s stay readable.'],
+      ['maxMarks', 'Most marks', 10000, 400000, 5000, fmt.int, 'Past this the marks grow instead. Big counts mean big files.'],
+    ],
+    lightRows: [
+      ['lightX', 'Light left / right', -1, 1, 0.01, fmt.n(2)],
+      ['lightY', 'Light bottom / top', -1, 1, 0.01, fmt.n(2)],
+      ['shadowPacking', 'Shadow packing', 0, 12, 0.1, fmt.n(1)],
+      ['rimPacking', 'Rim packing', 0, 12, 0.1, fmt.n(1)],
+    ],
+    diffRows: [
+      ['centre', 'Centre density', 0, 100, 1, (v) => `${Math.round(v)}%`, '100% is the original. Slide down to thin out the middle. Cross thins outwards from the centre, Hamburger thins a band across the middle and keeps the top and bottom packed.'],
+      ['centreReach', 'Reach', 0, 100, 1, (v) => `${Math.round(v)}%`, 'How far towards the rim the thinning spreads.'],
+    ],
+    markRows1: [
+      ['lineShare', 'Share of lines (1s)', 0, 1, 0.01, fmt.pct],
+      ['lineLength', 'Line length', 1, 4, 0.05, (v) => `${(+v).toFixed(2)}×`],
+      ['lineWeight', 'Line weight', 0.3, 1.2, 0.01, (v) => `${(+v).toFixed(2)}×`],
+    ],
+    markRows2: [
+      ['foreshorten', 'Foreshorten', 0, 1, 0.01, fmt.n(2)],
+      ['organic', 'Organic', 0, 1, 0.01, fmt.n(2), '0 is even and orderly, 1 is a loose natural scatter.'],
+      ['wiggle', 'Angle wiggle', 0, 30, 1, fmt.deg],
+      ['gap', 'Gap between marks', 0, 40, 1, (v) => `${Math.round(v)}% of mark`],
+    ],
+  };
+  const inputs = {};
+  for (const [host, rows] of Object.entries(ROWS)) {
+    const el = $(host);
+    for (const [k, label, min, max, step, f, hint] of rows) {
+      const row = document.createElement('div'); row.className = 'row';
+      const id = 'r_' + k;
+      row.innerHTML = `<label for="${id}">${label}</label><output class="num" for="${id}"></output>` +
+        `<input type="range" id="${id}" min="${min}" max="${max}" step="${step}">` + (hint ? `<p class="hint">${hint}</p>` : '');
+      el.appendChild(row);
+      const inp = row.querySelector('input'), out = row.querySelector('output');
+      inputs[k] = { inp, out, f };
+      inp.addEventListener('input', () => { p[k] = +inp.value; out.textContent = f(p[k]); changed(k); });
+    }
+  }
+
+  function seg(host, opts, get, set) {
+    const el = $(host);
+    if (opts) el.innerHTML = opts.map(([v, t]) => `<button data-v="${v}" aria-pressed="false">${t}</button>`).join('');
+    const sync = () => el.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === get()));
+    el.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; set(b.dataset.v); sync(); });
+    sync(); return sync;
+  }
+  const syncDir = seg('dirSeg', [['radial', 'Radial'], ['follow', 'Follow'], ['vertical', 'Upright']], () => p.direction, (v) => { p.direction = v; changed('direction'); });
+  const syncFrom = seg('fromSeg', [['centre', 'Centre'], ['light', 'Light spot']], () => p.radialFrom, (v) => { p.radialFrom = v; changed('radialFrom'); });
+  const syncDiff = seg('diffSeg', [['cross', 'Cross'], ['hamburger', 'Hamburger']], () => p.centreMode, (v) => { p.centreMode = v; changed('centreMode'); });
+  const syncMode = seg('modeSeg', null, () => ui.mode, (v) => { ui.mode = v; save(); applyMode(); });
+  const syncView = seg('viewSeg', null, () => ui.view, (v) => { ui.view = v; save(); layout(); });
+  const syncFmt = seg('fmtSeg', null, () => ui.fmt, (v) => { ui.fmt = v; save(); });
+
+  // size chips
+  $('sizeChips').innerHTML = SIZES.map((s) => `<button class="chip" data-s="${s}">${s >= 1024 ? s / 1024 + 'K' : s}</button>`).join('');
+  $('sizeChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; p.size = +b.dataset.s; $('size').value = p.size; changed('size'); });
+  $('size').addEventListener('change', () => { p.size = Math.max(16, Math.min(8192, Math.round(+$('size').value || 512))); $('size').value = p.size; changed('size'); });
+  $('lodChips').innerHTML = SIZES.map((s) => `<button class="chip" data-s="${s}">${s >= 1024 ? s / 1024 + 'K' : s}</button>`).join('');
+  $('lodChips').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return; const s = +b.dataset.s;
+    const has = ui.lods.includes(s);
+    if (has && ui.lods.length <= 1) return toast('Keep at least one detail level');
+    ui.lods = has ? ui.lods.filter((x) => x !== s) : [...ui.lods, s].sort((a, b) => a - b);
+    save(); syncAll(); schedule();
+  });
+
+  // colour
+  const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+  const full = (h) => h.length === 4 ? '#' + [...h.slice(1)].map((c) => c + c).join('') : h;
+  $('color').addEventListener('change', () => { const v = $('color').value.trim(); if (HEX.test(v)) { p.color = v; changed('color'); } else syncAll(); });
+  $('colorPick').addEventListener('input', () => { p.color = $('colorPick').value; changed('color'); });
+  let lastBg = p.background === 'none' ? '#2f2f2f' : p.background;
+  $('bg').addEventListener('change', () => { const v = $('bg').value.trim(); if (HEX.test(v)) { p.background = lastBg = v; changed('background'); } else syncAll(); });
+  $('bgPick').addEventListener('input', () => { p.background = lastBg = $('bgPick').value; changed('background'); });
+  $('transparent').addEventListener('change', () => { p.background = $('transparent').checked ? 'none' : lastBg; changed('background'); });
+  $('clustering').addEventListener('change', () => { p.clustering = $('clustering').checked; changed('clustering'); });
+  $('seed').addEventListener('change', () => { p.seed = Math.max(0, Math.round(+$('seed').value || 0)); changed('seed'); });
+  $('shuffle').addEventListener('click', () => { p.seed = Math.floor(Math.random() * 9999); changed('seed'); });
+  $('reset').addEventListener('click', () => { p = { ...D, size: p.size }; changed('all'); toast('Settings reset'); });
+  $('theme').addEventListener('click', () => {
+    const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    r.dataset.theme = dark ? 'light' : 'dark'; drawLaw();
+  });
+
+  function syncAll() {
+    for (const [k, { inp, out, f }] of Object.entries(inputs)) { inp.value = p[k]; out.textContent = f(p[k]); }
+    $('size').value = p.size;
+    $('sizeChips').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', +b.dataset.s === p.size));
+    $('lodChips').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', ui.lods.includes(+b.dataset.s)));
+    $('color').value = p.color; $('colorPick').value = full(p.color);
+    const bgv = p.background === 'none' ? lastBg : p.background;
+    $('bg').value = bgv; $('bgPick').value = full(bgv); $('transparent').checked = p.background === 'none';
+    $('bg').disabled = $('bgPick').disabled = p.background === 'none';
+    $('clustering').checked = p.clustering; $('seed').value = p.seed;
+    $('hSeed').textContent = String(p.seed).padStart(3, '0');
+    $('fromRow').hidden = $('fromSeg').hidden = p.direction !== 'radial';
+    inputs.foreshorten.inp.parentElement.hidden = p.direction !== 'radial';
+    $('diffTag').textContent = p.centre >= 100 ? 'Off' : `${100 - Math.round(p.centre)}% diffused`;
+    inputs.centreReach.inp.parentElement.classList.toggle('dim', p.centre >= 100);
+    $('lawFormula').textContent = `mark ∝ size^${(+p.growth).toFixed(2)}`;
+    syncDir(); syncFrom(); syncDiff(); syncMode(); syncView(); syncFmt();
+  }
+
+  // ---------- scaling law chart ----------
+  function drawLaw() {
+    const W = 300, H = 132, l = 30, r = 8, t = 16, b = 22;
+    const x0 = Math.log2(16), x1 = Math.log2(4096);
+    const X = (s) => l + ((Math.log2(s) - x0) / (x1 - x0)) * (W - l - r);
+    const pts = [], old = [];
+    for (let e = x0; e <= x1 + 1e-9; e += 0.05) { const s = 2 ** e; pts.push([s, Comput.plan(p, s).grain]); old.push([s, (2 * 0.44 * s) / p.grainBase]); }
+    const ymaxRaw = Math.max(...pts.map((q) => q[1])) * 1.5;
+    const step = ymaxRaw <= 4 ? 1 : ymaxRaw <= 10 ? 2 : ymaxRaw <= 25 ? 5 : 10;
+    const ymax = Math.ceil(ymaxRaw / step) * step;
+    const Y = (v) => H - b - (v / ymax) * (H - t - b);
+    let s = `<defs><clipPath id="lc"><rect x="${l}" y="${t}" width="${W - l - r}" height="${H - t - b}"/></clipPath></defs>`;
+    for (let v = 0; v <= ymax + 1e-9; v += step) s += `<line class="grid" x1="${l}" x2="${W - r}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${l - 6}" y="${Y(v) + 3}" text-anchor="end">${v}</text>`;
+    for (const sz of [16, 64, 256, 1024, 4096]) s += `<text x="${X(sz)}" y="${H - 6}" text-anchor="middle">${sz >= 1024 ? sz / 1024 + 'K' : sz}</text>`;
+    s += `<line class="ax" x1="${l}" x2="${W - r}" y1="${H - b}" y2="${H - b}"/>`;
+    const path = (a) => a.map((q, i) => `${i ? 'L' : 'M'}${X(q[0]).toFixed(1)} ${Y(q[1]).toFixed(1)}`).join('');
+    s += `<g clip-path="url(#lc)"><path class="old" d="${path(old)}"/><path class="cur" d="${path(pts)}"/></g>`;
+    const cg = Comput.plan(p, p.size);
+    if (p.size >= 16 && p.size <= 4096) s += `<circle class="dot" cx="${X(p.size)}" cy="${Y(cg.grain)}" r="3.5"/>`;
+    s += `<text x="${l}" y="9">MARK PX</text><text x="${W - r}" y="9" text-anchor="end"><tspan class="lg">— now</tspan>   - - - original</text>`;
+    $('lawChart').innerHTML = s;
+  }
+
+  // ---------- generation ----------
+  let job = 0, single = null, rsp = null, rspUrl = null, rspSvgText = '', rspResults = [], dirty = { single: true, rsp: true }, timer = 0;
+  const NO_REGEN = new Set(['color', 'background']);
+  function changed(k) {
+    save(); syncAll(); drawLaw();
+    if (NO_REGEN.has(k)) { if (single) draw(single); if (rspResults.length) composeRsp(); return; }
+    if (k === 'size') { dirty.single = true; } else { dirty.single = dirty.rsp = true; }
+    schedule();
+  }
+  function schedule() { clearTimeout(timer); timer = setTimeout(run, 180); }
+
+  function busy(on, txt, frac) {
+    $('status').classList.toggle('busy', on);
+    $('statusText').textContent = txt;
+    $('bar').style.width = on ? `${Math.round((frac || 0) * 100)}%` : '0%';
+  }
+
+  async function run() {
+    const my = ++job, cancelled = () => my !== job;
+    try {
+      if (ui.mode === 'single') {
+        if (!dirty.single && single && single.size === p.size) return;
+        const pl = Comput.plan(p, p.size);
+        busy(true, `Computing ${pl.n.toLocaleString('en-GB')} marks`, 0);
+        const r = await Comput.generate(p, p.size, { cancelled, onProgress: (f) => busy(true, `Computing ${pl.n.toLocaleString('en-GB')} marks · ${Math.round(f * 100)}%`, f) });
+        if (cancelled()) return;
+        single = r; dirty.single = false; draw(r); reads(); busy(false, 'Ready');
+      } else {
+        const sizes = ui.lods.slice().sort((a, b) => a - b), out = [];
+        for (let i = 0; i < sizes.length; i++) {
+          const pl = Comput.plan(p, sizes[i]);
+          const r = await Comput.generate(p, sizes[i], { cancelled, onProgress: (f) => busy(true, `Level ${i + 1}/${sizes.length} · ${sizes[i]} px · ${Math.round(f * 100)}%`, (i + f) / sizes.length) });
+          if (cancelled()) return;
+          out.push(r);
+        }
+        rspResults = out; dirty.rsp = false; composeRsp(); busy(false, 'Ready');
+      }
+    } catch (e) {
+      if (e instanceof Comput.Cancelled) return;
+      console.error(e); busy(false, 'Error: ' + e.message);
+    }
+  }
+
+  function composeRsp() {
+    rspSvgText = Comput.responsiveSvg(rspResults, p);
+    if (rspUrl) URL.revokeObjectURL(rspUrl);
+    rspUrl = URL.createObjectURL(new Blob([rspSvgText], { type: 'image/svg+xml' }));
+    $('rspImg').src = rspUrl; layout(); reads();
+  }
+
+  // ---------- drawing ----------
+  function viewScale(size) {
+    if (ui.view === 'one') return 1;
+    const v = $('view'), w = v.clientWidth - 44, h = v.clientHeight - 60;
+    return Math.max(0.02, Math.min(1, Math.min(w, h > 80 ? h : w) / size));
+  }
+  function draw(r) {
+    const cv = $('cv'), vs = viewScale(r.size), css = r.size * vs;
+    const dpr = Math.min(window.devicePixelRatio || 1, 6000 / css), px = Math.max(1, Math.round(css * dpr));
+    cv.width = px; cv.height = px; cv.style.width = css + 'px'; cv.style.height = css + 'px';
+    const ctx = cv.getContext('2d'), k = px / r.size;
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, px, px);
+    if (p.background !== 'none') { ctx.fillStyle = p.background; ctx.fillRect(0, 0, px, px); }
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    const { x, y, ux, uy, half, shape, n, rad } = r;
+    ctx.fillStyle = p.color; ctx.beginPath();
+    for (let i = 0; i < n; i++) if (shape[i] === 0) { ctx.moveTo(x[i] + rad, y[i]); ctx.arc(x[i], y[i], rad, 0, 6.2832); }
+    ctx.fill();
+    ctx.strokeStyle = p.color; ctx.lineWidth = r.lw; ctx.lineCap = 'round'; ctx.beginPath();
+    for (let i = 0; i < n; i++) if (shape[i] === 1) { const hx = ux[i] * half[i], hy = uy[i] * half[i]; ctx.moveTo(x[i] - hx, y[i] - hy); ctx.lineTo(x[i] + hx, y[i] + hy); }
+    ctx.stroke();
+    $('boardTag').textContent = `${r.size} × ${r.size} PX · VIEW ${Math.round(vs * 100)}%`;
+  }
+
+  // responsive width slider: log scale 32 … 3000
+  const RW0 = Math.log(32), RW1 = Math.log(3000);
+  const toW = (v) => Math.round(Math.exp(RW0 + (v / 1000) * (RW1 - RW0)));
+  const fromW = (w) => Math.round(((Math.log(w) - RW0) / (RW1 - RW0)) * 1000);
+  $('rspW').addEventListener('input', () => { ui.rspW = toW(+$('rspW').value); save(); layout(); reads(); });
+
+  function activeLevel(w) {
+    const sizes = rspResults.map((r) => r.size), t = Comput.thresholds(sizes);
+    let i = 0; while (i < t.length && w >= t[i]) i++;
+    return rspResults[i];
+  }
+
+  function layout() {
+    const v = $('view');
+    v.classList.toggle('one', ui.view === 'one');
+    if (ui.mode === 'single') { if (single) draw(single); }
+    else {
+      const w = ui.rspW; $('rspW').value = fromW(w); $('rspWOut').textContent = `${w} PX`;
+      const img = $('rspImg'); img.style.width = w + 'px'; img.style.height = w + 'px';
+      const a = rspResults.length ? activeLevel(w) : null;
+      $('boardTag').textContent = a ? `DRAWN AT ${w} PX · DETAIL LEVEL ${a.size} PX` : 'BUILDING…';
+    }
+  }
+
+  function kb(n) { return n > 1e6 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; }
+  function reads() {
+    const el = $('reads');
+    const cell = (k, v) => `<div><span class="lab mute">${k}</span><span class="v">${v}</span></div>`;
+    if (ui.mode === 'single') {
+      if (!single) { el.innerHTML = ''; return; }
+      const r = single;
+      el.innerHTML = cell('Size', `${r.size} px`) + cell('Marks', (r.circles + r.lines).toLocaleString('en-GB')) +
+        cell('0 / 1', `${r.circles.toLocaleString('en-GB')} / ${r.lines.toLocaleString('en-GB')}`) +
+        cell('Mark size', `${r.grain.toFixed(2)} px`) + cell('Time', `${(r.ms / 1000).toFixed(1)} s`);
+    } else {
+      if (!rspResults.length) { el.innerHTML = ''; return; }
+      const a = activeLevel(ui.rspW), tot = rspResults.reduce((s, r) => s + r.circles + r.lines, 0);
+      el.innerHTML = cell('Levels', rspResults.map((r) => r.size).join(' / ')) +
+        cell('Active', `${a.size} px · ${(a.circles + a.lines).toLocaleString('en-GB')}`) +
+        cell('Mark size now', `${(a.grain * ui.rspW / a.size).toFixed(2)} px`) +
+        cell('Total marks', tot.toLocaleString('en-GB')) + cell('File', kb(new Blob([rspSvgText]).size));
+    }
+  }
+
+  function applyMode() {
+    const r = ui.mode === 'responsive';
+    $('rspCtl').hidden = !r; $('actRsp').hidden = !r; $('actSingle').hidden = r;
+    $('cv').hidden = r; $('rspImg').hidden = !r; $('viewSeg').hidden = r;
+    syncAll(); layout(); reads(); schedule();
+  }
+
+  // ---------- export ----------
+  const downloadsP = window.claude && window.claude.use ? window.claude.use('downloads').catch(() => null) : Promise.resolve(null);
+  async function saveFile(filename, text) {
+    const dl = await downloadsP;
+    if (dl) {
+      try { await dl.save({ filename, data: new Blob([text], { type: 'image/svg+xml' }) }); toast(`Saved ${filename}`); }
+      catch (e) { if (e && e.code !== 'declined') toast(e.code === 'unavailable' ? 'Saving is not available in this view' : 'Could not save the file'); }
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'image/svg+xml' })); a.download = filename;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    toast(`Saved ${filename}`);
+  }
+  $('export').addEventListener('click', () => {
+    if (!single || dirty.single) return toast('Still computing, try again in a moment');
+    saveFile(`comput-sphere-${single.size}px-seed${p.seed}${ui.fmt === 'compact' ? '-compact' : ''}.svg`, Comput.svg(single, p, ui.fmt));
+  });
+  $('exportRsp').addEventListener('click', () => {
+    if (!rspResults.length || dirty.rsp) return toast('Still computing, try again in a moment');
+    saveFile(`comput-sphere-responsive-${rspResults.map((r) => r.size).join('-')}-seed${p.seed}.svg`, rspSvgText);
+  });
+
+  let tt = 0;
+  function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('on'), 2200); }
+
+  // header mark: the logo itself at 30 px
+  (async () => {
+    const r = await Comput.generate({ ...D, color: '#000' }, 30);
+    const cv = $('mini'), ctx = cv.getContext('2d'), k = cv.width / 30;
+    const paint = () => {
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height); ctx.setTransform(k, 0, 0, k, 0, 0);
+      const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
+      ctx.fillStyle = ink; ctx.beginPath();
+      for (let i = 0; i < r.n; i++) if (r.shape[i] >= 0) { ctx.moveTo(r.x[i] + r.rad, r.y[i]); ctx.arc(r.x[i], r.y[i], r.rad, 0, 6.2832); }
+      ctx.fill();
+    };
+    paint(); new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paint);
+  })();
+
+  let rz = 0;
+  window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(layout, 120); });
+  syncAll(); drawLaw(); applyMode();
+})();
+</script>
