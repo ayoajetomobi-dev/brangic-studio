@@ -354,7 +354,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         <div class="seg" id="toolSeg" role="group" aria-label="Tool"><button data-v="move" aria-pressed="true" title="Move (G)">Move</button><button data-v="rotate" aria-pressed="false" title="Rotate (R)">Rotate</button><button data-v="scale" aria-pressed="false" title="Scale (S)">Scale</button></div>
         <div class="seg" id="axisSeg" role="group" aria-label="Axis" style="min-width:150px"><button data-v="free" aria-pressed="true" title="Free (Esc)">Free</button><button data-v="x" aria-pressed="false" title="X axis (X)">X</button><button data-v="y" aria-pressed="false" title="Y axis (Y)">Y</button><button data-v="z" aria-pressed="false" title="Z axis (Z)">Z</button></div>
         <button class="btn ghost sm" id="resetView" title="Reset view (F)">Reset view</button>
-        <span class="kbd" id="navHint">Drag a shape to edit it. Drag empty space to orbit, Shift or right-drag to pan, scroll or pinch to zoom.</span>
+        <span class="kbd" id="navHint">Click a shape to edit it, or empty space to deselect. Drag empty space to pan. Right-drag or Option-drag to orbit. Scroll or pinch to zoom.</span>
       </div>
       <div class="bar"><i id="bar"></i></div>
       <div class="view" id="view">
@@ -435,7 +435,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     const i = HIST.idx + step; if (i < 0 || i >= HIST.stack.length) return;
     HIST.idx = i; const s0 = HIST.stack[i];
     const keepSize = p.size;
-    p = { ...D, ...JSON.parse(s0.p) }; ui.sel = Math.max(0, Math.min(s0.sel ?? 0, (p.scene?.shapes?.length || 1) - 1));
+    p = { ...D, ...JSON.parse(s0.p) }; ui.sel = Math.max(-1, Math.min(s0.sel ?? -1, (p.scene?.shapes?.length || 0) - 1));
     if (p.background !== 'none') lastBg = p.background;
     syncHistory(); changed(p.size !== keepSize ? 'size' : 'all');
     toast(step < 0 ? 'Undone' : 'Redone');
@@ -686,7 +686,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   // ---------- scenes ----------
   const clone = (o) => JSON.parse(JSON.stringify(o));
   if (!p.scene || !Array.isArray(p.scene.shapes)) p.scene = clone(Comput.SCENES['zero-one'].scene);
-  ui.sel = Math.min(ui.sel ?? 0, p.scene.shapes.length - 1);
+  ui.sel = Math.max(-1, Math.min(ui.sel ?? 0, p.scene.shapes.length - 1));
   const SC = () => p.scene, SEL = () => p.scene.shapes[ui.sel];
   function rowsFor(host, defs, getObj, onSet) {
     const el = $(host), rows = {};
@@ -753,7 +753,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     $('shapeChips').innerHTML = sc.shapes.map((sh, i) => `<button class="chip" data-i="${i}" aria-pressed="${i === ui.sel}">${i + 1} · ${Comput.SHAPES[sh.type]?.label || sh.type}</button>`).join('') || '';
     const has = !!SEL();
     $('shapeRows').hidden = $('shapeBtns').hidden = !has;
-    $('shapeHint').textContent = has ? 'Drag it on the artboard, or fine-tune it here.' : 'Add a shape, or start from a ready-made scene.';
+    $('shapeHint').textContent = has ? 'Drag it on the artboard, or fine-tune it here.' : sc.shapes.length ? 'Click a shape on the artboard or above to edit it.' : 'Add a shape, or start from a ready-made scene.';
     if (has) { const rows = syncShapeRows(); rows.q.row.hidden = !Comput.SHAPES[SEL().type]?.q; }
     syncCamRows();
     $('frameChips').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.f === sc.aspect));
@@ -916,12 +916,18 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
       const [a, b] = [...touches.values()];
       gest = { kind: 'pinch', d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 }; return;
     }
-    const pan = e.shiftKey || e.button === 1 || e.button === 2 || spaceDown;
+    // right-drag or Option/Alt-drag orbits; Shift, middle button or Space always pan
+    const orbit = e.button === 2 || e.altKey, panKey = e.shiftKey || e.button === 1 || spaceDown;
     let kind, axis = ui.tool.axis;
-    const hAxis = hitAxis(m);
-    if (!pan && hAxis && SEL()) { axis = hAxis; setTool(null, hAxis); kind = ui.tool.mode; }
-    else if (pan) kind = 'pan';
-    else { const hit = pick(m); if (hit >= 0) { if (hit !== ui.sel) { ui.sel = hit; syncScene(); } kind = ui.tool.mode; } else kind = 'orbit'; }
+    const hAxis = !orbit && !panKey ? hitAxis(m) : null;
+    if (hAxis && SEL()) { axis = hAxis; setTool(null, hAxis); kind = ui.tool.mode; }
+    else if (orbit) kind = 'orbit';
+    else if (panKey) kind = 'pan';
+    else {
+      const hit = pick(m);
+      if (hit >= 0) { if (hit !== ui.sel) { ui.sel = hit; syncScene(); } kind = ui.tool.mode; }
+      else { if (ui.sel !== -1) { ui.sel = -1; save(); syncScene(); } kind = 'pan'; }   // empty space: nothing selected, drag pans
+    }
     gest = { kind, axis, last: m, cx: e.clientX, cy: e.clientY };
     view.classList.add('grabbing'); drawGizmo(); e.preventDefault();
   });
