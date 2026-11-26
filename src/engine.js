@@ -19,9 +19,9 @@ const Comput = (() => {
     // lighting
     lightX: -0.25, lightY: 0.45, shadowPacking: 5.0, rimPacking: 4.0,
     // centre diffusion: how much of the original density the centre keeps (100 = untouched)
-    centre: 100,         // % density left at the very centre
-    centreReach: 50,     // % how far out towards the rim the thinning reaches
-    centreMode: 'cross', // 'cross' thins across x and y, 'hamburger' mainly along y (a band through the middle)
+    centre: 35,          // % density left in the thinned area (a sparse scatter always survives)
+    centreReach: 50,     // % how far the thinning spreads
+    centreMode: 'off',   // 'off', 'cross' (thins out from the middle) or 'hamburger' (a band across the middle)
     // marks
     lineShare: 0.6, lineLength: 1.9, lineWeight: 0.8,
     direction: 'radial', radialFrom: 'centre', foreshorten: 0.4,
@@ -100,20 +100,31 @@ const Comput = (() => {
     ? (() => { const ch = new MessageChannel(), q = []; ch.port1.onmessage = () => q.shift()(); if (ch.port1.unref) ch.port1.unref(); return () => new Promise((res) => { q.push(res); ch.port2.postMessage(0); }); })()
     : () => new Promise((res) => setTimeout(res, 0));
 
-  async function generate(p, size, opt = {}) {
-    const onProgress = opt.onProgress || (() => {});
-    const cancelled = opt.cancelled || (() => false);
+  function yielder(opt, from, span) {
+    const onProgress = opt.onProgress || (() => {}), cancelled = opt.cancelled || (() => false);
+    let last = Date.now();
+    return async (frac) => {
+      if (Date.now() - last > 30) {
+        onProgress(from + span * frac); await tick(); last = Date.now();
+        if (cancelled()) throw new Cancelled();
+      }
+    };
+  }
+
+  // Settings that move the marks. Anything else (0s and 1s, colour) reuses the positions.
+  const POSITION_KEYS = ['base', 'baseMarks', 'grainBase', 'growth', 'minGrain', 'maxMarks', 'lightX', 'lightY',
+    'shadowPacking', 'rimPacking', 'centre', 'centreReach', 'centreMode', 'organic', 'seed'];
+  function positionsKey(p, size, draft) {
+    return size + '|' + (draft ? 'd' : 'f') + '|' + POSITION_KEYS.map((k) => p[k]).join('|');
+  }
+
+  // Stage A (slow): where the marks sit on the ball. draft = fewer relaxation passes, for live dragging.
+  async function positions(p, size, opt = {}) {
+    const maybeYield = yielder(opt, 0, opt.draft ? 1 : 0.88);
     const t0 = Date.now();
     const pl = plan(p, size);
     let N = pl.n;
     const R = rng(p.seed);
-    let last = Date.now();
-    const maybeYield = async (frac) => {
-      if (Date.now() - last > 30) {
-        onProgress(frac); await tick(); last = Date.now();
-        if (cancelled()) throw new Cancelled();
-      }
-    };
 
     // ---------- 1. density on the unit ball (y up) ----------
     let L0 = p.lightX, L1 = p.lightY, L2 = 1;
@@ -126,19 +137,19 @@ const Comput = (() => {
       return (1 + SP * sh * sh + RP * Math.pow(rim, 2.5)) * keep(x, y, nz);
     };
 
-    // centre diffusion: thin the marks where the ball faces you, leave the rim as it is.
-    // keep() = share of the original density kept; 1 at the rim, `centre` at the middle.
-    // cross: falls off with how much the ball faces you (x and y alike).
-    // hamburger: falls off mainly with height, so a band through the middle thins while
-    // the top and bottom stay packed; a little of the facing term keeps the side rims crisp.
-    const CV = Math.min(1, Math.max(0, p.centre / 100));
+    // centre diffusion. keep() = share of the original density kept.
+    // cross: thins outwards from the middle; the rim stays packed.
+    // hamburger: thins a horizontal band right across the ball, through the left and right
+    // edges too, so the top and bottom read as two packed buns.
+    // Even at 0% a sparse scatter survives (4% of the density), so it never wipes clean.
+    const CV = p.centreMode === 'off' ? 1 : 0.04 + 0.96 * Math.min(1, Math.max(0, p.centre / 100));
     const CE = 4 - 3.65 * Math.min(1, Math.max(0, p.centreReach / 100)); // reach 0 → tight centre spot, 1 → reaches the rim
     const HAM = p.centreMode === 'hamburger';
     const HBW = 0.15 + 0.6 * Math.min(1, Math.max(0, p.centreReach / 100)); // band half-height
     function keep(x, y, nz) {
       if (CV >= 1) return 1;
       let w;
-      if (HAM) { const cy = Math.sqrt(Math.max(0, 1 - y * y)), u = y / HBW; w = Math.exp(-u * u) * (cy > 1e-6 ? Math.pow(nz / cy, 0.6) : 0); }
+      if (HAM) { const u = y / HBW; w = Math.exp(-u * u); }
       else w = Math.pow(nz, CE);
       return 1 - (1 - CV) * w;
     }
@@ -155,7 +166,7 @@ const Comput = (() => {
     }
 
     // ---------- 2. density-weighted samples, then Lloyd (k-means) relaxation ----------
-    const M = Math.round(Math.min(3.2e6, Math.max(40000, N * 14)));
+    const M = Math.round(Math.min(3.2e6, opt.draft ? Math.max(20000, N * 6) : Math.max(40000, N * 14)));
     const G = Math.ceil(Math.sqrt((4 * M) / Math.PI)), cs = 2 / G;
     const W = new Float32Array(G * G);
     let tot = 0;
@@ -186,7 +197,7 @@ const Comput = (() => {
       X[i] = SX[k] + (R() - 0.5) * cs; Y[i] = SY[k] + (R() - 0.5) * cs;
     }
 
-    const iters = Math.round(4 + 40 * (1 - p.organic));
+    const iters = opt.draft ? Math.min(3, Math.round(4 + 40 * (1 - p.organic))) : Math.round(4 + 40 * (1 - p.organic));
     const h = Math.sqrt((2 * Math.PI) / N), GMIN = -1.02, GS = Math.ceil(2.04 / h);
     const AX = new Float64Array(N), AY = new Float64Array(N), AC = new Int32Array(N);
     for (let it = 0; it < iters; it++) {
@@ -213,7 +224,7 @@ const Comput = (() => {
           }
         }
         AX[bi] += x; AY[bi] += y; AC[bi]++;
-        if ((q & 0xffff) === 0) await maybeYield(0.04 + 0.82 * ((it + q / m) / iters));
+        if ((q & 0xffff) === 0) await maybeYield(0.04 + 0.96 * ((it + q / m) / iters));
       }
       for (let i = 0; i < N; i++) if (AC[i]) { X[i] = AX[i] / AC[i]; Y[i] = AY[i] / AC[i]; }
     }
@@ -238,7 +249,16 @@ const Comput = (() => {
         if (r > LIM) { X[i] *= LIM / r; Y[i] *= LIM / r; }
       }
     }
+    return { key: positionsKey(p, size, opt.draft), plan: pl, n: N, X, Y, L0, L1, draft: !!opt.draft, ms: Date.now() - t0 };
+  }
 
+  // Stage B (fast): turn positions into 0s and 1s. Has its own random stream so it
+  // gives the same result whether or not the positions came from the cache.
+  async function place(pos, p, opt = {}) {
+    const maybeYield = yielder(opt, pos.fromCache || pos.draft ? 0 : 0.88, pos.fromCache || pos.draft ? 1 : 0.12);
+    const t0 = Date.now();
+    const { plan: pl, n: N, X, Y, L0, L1 } = pos;
+    const R = rng(p.seed + 7919);
     // ---------- 3. marks in output pixels ----------
     const S = pl.size, RP_ = pl.radius, D = pl.grain, rad = D / 2;
     const lw = D * p.lineWeight, gap = (p.gap / 100) * D;
@@ -310,16 +330,30 @@ const Comput = (() => {
         if (!clash) { shape[i] = tryLine ? 1 : 0; placed = true; }
       }
       if (!placed) shape[i] = p.clustering ? 0 : -1;
-      if ((oi & 0x3fff) === 0) await maybeYield(0.86 + 0.14 * (oi / N));
+      if ((oi & 0x3fff) === 0) await maybeYield(oi / N);
     }
 
     let circles = 0, lines = 0, dropped = 0;
     for (let i = 0; i < N; i++) shape[i] === 0 ? circles++ : shape[i] === 1 ? lines++ : dropped++;
-    onProgress(1);
     return {
       size: S, plan: pl, grain: D, rad, lw, n: N, x: PX, y: PY, ux: UX, uy: UY, half: HALF, shape,
-      circles, lines, dropped, ms: Date.now() - t0,
+      circles, lines, dropped, draft: pos.draft, ms: Date.now() - t0 + (pos.fromCache ? 0 : pos.ms),
     };
+  }
+
+  // Full run. opt.cache: a Map reused between calls, so changing only the 0s and 1s
+  // skips the slow stage. opt.draft: quick low-relaxation preview.
+  async function generate(p, size, opt = {}) {
+    const key = positionsKey(p, size, opt.draft);
+    let pos = opt.cache && opt.cache.get(key);
+    if (pos) { pos = { ...pos, fromCache: true }; opt.cache.delete(key); opt.cache.set(key, pos); }
+    else {
+      pos = await positions(p, size, opt);
+      if (opt.cache) { opt.cache.set(key, pos); while (opt.cache.size > 8) opt.cache.delete(opt.cache.keys().next().value); }
+    }
+    const res = await place(pos, p, opt);
+    (opt.onProgress || (() => {}))(1);
+    return res;
   }
 
   // ---------- SVG ----------
@@ -389,6 +423,6 @@ const Comput = (() => {
       `<style>${css}</style>` + bgRect(p, V) + groups + `</svg>`;
   }
 
-  return { DEFAULTS, plan, generate, svg, responsiveSvg, thresholds, Cancelled };
+  return { DEFAULTS, POSITION_KEYS, plan, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
 })();
 if (typeof module !== 'undefined') module.exports = Comput;

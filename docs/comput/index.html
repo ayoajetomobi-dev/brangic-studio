@@ -11,16 +11,15 @@
   --ink: #121312;       /* black ink */
   --mute: #6a6e68;      /* secondary readout */
   --rule: #c9ccc6;      /* hairlines on panel */
-  --fill: #d5d8d2;      /* slider track / chip off */
   --board: #f4f5f2;     /* transparent-artboard paper */
   --board-2: #e9eae6;   /* checker */
   --font: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg: #0a0a0a; --panel: #1a1b1a; --ink: #eceeea; --mute: #8b8f89; --rule: #2d2f2d; --fill: #2b2d2b;
+  --bg: #0a0a0a; --panel: #1a1b1a; --ink: #eceeea; --mute: #8b8f89; --rule: #2d2f2d;
   --board: #f4f5f2; --board-2: #e9eae6; color-scheme: dark } }
 :root[data-theme="dark"] {
-  --bg: #0a0a0a; --panel: #1a1b1a; --ink: #eceeea; --mute: #8b8f89; --rule: #2d2f2d; --fill: #2b2d2b;
+  --bg: #0a0a0a; --panel: #1a1b1a; --ink: #eceeea; --mute: #8b8f89; --rule: #2d2f2d;
   --board: #f4f5f2; --board-2: #e9eae6; color-scheme: dark }
 
 * { box-sizing: border-box }
@@ -41,26 +40,23 @@ header { display: flex; align-items: center; gap: 14px; min-height: 40px; border
 .brand { display: flex; align-items: center; gap: 10px }
 .brand canvas { width: 30px; height: 30px; display: block }
 .brand b { font-size: 20px; font-weight: 500; letter-spacing: .14em }
-.hdr-read { display: flex; gap: 22px; margin-left: auto; align-items: center; flex-wrap: wrap; justify-content: flex-end }
-.hdr-read span { white-space: nowrap }
-.iconbtn { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--ink); background: transparent; display: grid; place-items: center; cursor: pointer; padding: 0 }
+.hdr-read { display: flex; gap: 22px; margin-left: auto; align-items: center }
+.iconbtn { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--ink); background: transparent; display: grid; place-items: center; cursor: pointer; padding: 0; flex: none }
 .iconbtn svg { width: 14px; height: 14px }
 
 .main { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 14px; min-height: 0 }
 .controls { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; scrollbar-width: thin }
 
-.mod { background: var(--panel); border-radius: 22px; padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 12px }
+.mod { background: var(--panel); border-radius: 22px; padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 14px }
 .mod-h { display: flex; align-items: baseline; justify-content: space-between; gap: 10px }
 .mod-h .lab { font-weight: 600 }
-.mod p.hint { margin: -4px 0 0; color: var(--mute); font-size: 12px; text-wrap: pretty }
+.sub { font-size: 12px; color: var(--mute); margin: -6px 0 0; text-wrap: pretty }
 
 .rows { display: flex; flex-direction: column; gap: 12px }
 .row { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center }
 .row label { font-size: 12px }
 .row output { font-size: 12px; text-align: right; min-width: 3.5em }
 .row input[type=range] { grid-column: 1 / -1 }
-.row.dim { opacity: .45 }
-.row .hint { grid-column: 1 / -1; color: var(--mute); font-size: 11px; margin: 0 }
 
 input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; margin: 0; cursor: pointer }
 input[type=range]::-webkit-slider-runnable-track { height: 1px; background: var(--ink) }
@@ -72,14 +68,15 @@ input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset
 .seg { display: flex; border: 1px solid var(--ink); border-radius: 999px; padding: 2px; gap: 2px }
 .seg button { flex: 1; border: 0; background: transparent; border-radius: 999px; padding: 6px 8px; cursor: pointer; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 500; white-space: nowrap }
 .seg button[aria-pressed=true] { background: var(--ink); color: var(--panel) }
-.seg button:focus-visible, .chip:focus-visible, .btn:focus-visible, .iconbtn:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px }
+.seg button:focus-visible, .chip:focus-visible, .btn:focus-visible, .iconbtn:focus-visible, summary:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px }
 .chip { border: 1px solid var(--ink); background: transparent; border-radius: 999px; padding: 5px 10px; font-size: 11.5px; cursor: pointer; font-variant-numeric: tabular-nums }
 .chip[aria-pressed=true] { background: var(--ink); color: var(--panel) }
 
-.field { display: flex; align-items: center; gap: 8px; border: 1px solid var(--ink); border-radius: 999px; padding: 4px 6px 4px 14px }
+.field { display: flex; align-items: center; gap: 8px; border: 1px solid var(--ink); border-radius: 999px; padding: 4px 6px 4px 14px; min-width: 0 }
 .field input { border: 0; background: transparent; width: 100%; min-width: 0; font-size: 15px; outline: none; font-variant-numeric: tabular-nums }
+.pair .field input[type=text] { font-size: 13px }
 .field .unit { font-size: 10.5px; letter-spacing: .08em; color: var(--mute) }
 .field input[type=color] { width: 26px; height: 26px; padding: 0; border-radius: 50%; overflow: hidden; flex: none; cursor: pointer }
 .field input[type=color]::-webkit-color-swatch-wrapper { padding: 0 } .field input[type=color]::-webkit-color-swatch { border: 0; border-radius: 50% }
@@ -90,17 +87,28 @@ input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset
 .toggle input:checked { background: var(--ink) } .toggle input:checked::after { left: 17px; background: var(--panel) }
 .toggle input:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px }
 
-/* law chart */
-.law svg { width: 100%; height: auto; display: block; overflow: visible }
-.law .ax { stroke: var(--ink); stroke-width: 1 } .law .grid { stroke: var(--rule); stroke-width: 1 }
-.law text { fill: var(--mute); font-size: 9px; font-family: var(--font) }
-.law .cur { stroke: var(--ink); stroke-width: 1.5; fill: none } .law .old { stroke: var(--mute); stroke-width: 1; stroke-dasharray: 3 3; fill: none }
-.law .dot { fill: var(--ink) } .law .lg { fill: var(--ink) }
+/* light pad: drag the dot to place the light on the ball */
+.light { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 16px; align-items: center }
+.pad { width: 112px; height: 112px; touch-action: none; cursor: crosshair; display: block; border-radius: 50% }
+.pad .ball { fill: none; stroke: var(--ink); stroke-width: 1 }
+.pad .hair { stroke: var(--rule); stroke-width: 1 }
+.pad .glow { fill: var(--ink); opacity: .12 }
+.pad .dot { fill: var(--ink) }
+.pad:focus-visible { outline: 1px dashed var(--ink); outline-offset: 3px }
+
+/* more settings */
+details.more { background: var(--panel); border-radius: 22px; padding: 0 18px }
+details.more > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-radius: 12px }
+details.more > summary::-webkit-details-marker { display: none }
+details.more > summary .pm { width: 18px; height: 18px; border: 1px solid var(--ink); border-radius: 50%; display: grid; place-items: center; font-size: 13px; line-height: 1 }
+details.more[open] > summary .pm::before { content: "–" } details.more:not([open]) > summary .pm::before { content: "+" }
+.more-body { display: flex; flex-direction: column; gap: 14px; padding-bottom: 18px }
+.group-t { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--mute); padding-top: 12px; border-top: 1px solid var(--rule) }
 
 /* stage */
 .stage { background: var(--panel); border-radius: 22px; display: flex; flex-direction: column; min-height: 0; overflow: hidden }
-.stage-top { display: flex; align-items: center; gap: 12px; padding: 12px 14px 12px 18px; border-bottom: 1px solid var(--rule); flex-wrap: wrap }
-.stage-top .seg { min-width: 240px }
+.stage-top { display: flex; align-items: center; gap: 10px; padding: 12px 14px 12px 18px; border-bottom: 1px solid var(--rule); flex-wrap: wrap }
+.stage-top #modeSeg { min-width: 230px }
 .status { margin-left: auto; display: flex; align-items: center; gap: 8px }
 .pulse { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--ink) }
 .busy .pulse { background: var(--ink); animation: blink .8s steps(2) infinite }
@@ -109,7 +117,7 @@ input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset
 .bar { height: 1px; background: var(--rule); position: relative }
 .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); width: 0 }
 
-.view { position: relative; overflow: auto; flex: 1; min-height: 0; display: grid; place-items: center; padding: 22px }
+.view { position: relative; overflow: auto; flex: 1; min-height: 0; display: grid; place-items: center; padding: 26px 22px 22px }
 .board { position: relative; background-color: var(--board);
   background-image: linear-gradient(45deg, var(--board-2) 25%, transparent 25%, transparent 75%, var(--board-2) 75%), linear-gradient(45deg, var(--board-2) 25%, transparent 25%, transparent 75%, var(--board-2) 75%);
   background-size: 16px 16px; background-position: 0 0, 8px 8px; outline: 1px solid var(--rule) }
@@ -122,9 +130,9 @@ input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset
 .reads div { display: flex; flex-direction: column; gap: 2px }
 .reads .v { font-size: 15px; font-variant-numeric: tabular-nums }
 .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
-.btn { border: 1px solid var(--ink); border-radius: 999px; padding: 10px 18px; background: var(--ink); color: var(--panel); cursor: pointer; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; font-weight: 600; display: inline-flex; gap: 8px; align-items: center }
+.btn { border: 1px solid var(--ink); border-radius: 999px; padding: 10px 18px; background: var(--ink); color: var(--panel); cursor: pointer; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; font-weight: 600; display: inline-flex; gap: 8px; align-items: center; justify-content: center }
 .btn.ghost { background: transparent; color: var(--ink) }
-.btn[disabled] { opacity: .4; cursor: default }
+.btn.sm { padding: 7px 14px }
 .note { font-size: 11.5px; color: var(--mute); max-width: 52ch; text-wrap: pretty }
 .toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--panel); padding: 9px 16px; border-radius: 999px; font-size: 12px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 5 }
 .toast.on { opacity: 1 }
@@ -137,7 +145,7 @@ input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset
   html, body { height: auto }
   .app { height: auto }
   .main { grid-template-columns: 1fr }
-  .stage { order: -1; min-height: 0 }
+  .stage { order: -1 }
   .view { min-height: 78vw; max-height: 80vh }
   .controls { overflow: visible; padding-right: 0 }
   .opt { display: none }
@@ -147,10 +155,8 @@ input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset
 <div class="app">
   <header>
     <div class="brand"><canvas id="mini" width="60" height="60" aria-hidden="true"></canvas><b>COMPUT</b></div>
-    <span class="lab mute opt">Generator / Sphere / v0.1</span>
+    <span class="lab mute opt">Sphere / 0 + 1 / SVG</span>
     <div class="hdr-read lab">
-      <span class="opt">Output: SVG</span>
-      <span class="opt">Seed <span id="hSeed" class="num">003</span></span>
       <button class="iconbtn" id="theme" title="Switch light or dark interface" aria-label="Switch light or dark interface">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><circle cx="8" cy="8" r="6.5"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg>
       </button>
@@ -160,38 +166,30 @@ input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset
   <div class="main">
     <aside class="controls" id="controls">
       <section class="mod">
-        <div class="mod-h"><span class="lab">Output size</span><span class="lab mute">Px</span></div>
+        <div class="mod-h"><span class="lab">Size</span></div>
         <div class="field"><input id="size" type="number" min="16" max="8192" step="1" inputmode="numeric" aria-label="Output size in pixels"><span class="unit">PX</span></div>
         <div class="chips" id="sizeChips"></div>
-      </section>
-
-      <section class="mod law">
-        <div class="mod-h"><span class="lab">Scaling law</span><span class="lab mute" id="lawFormula">mark ∝ size^0.50</span></div>
-        <p class="hint">As the logo gets bigger each 0 and 1 shrinks relative to it and more of them fill in, so the shading stays the same.</p>
-        <svg id="lawChart" viewBox="0 0 300 132" role="img" aria-label="Mark size in pixels against output size"></svg>
-        <div class="rows" id="lawRows"></div>
+        <p class="sub">Bigger sizes get more, smaller 0s and 1s, so the texture holds at any scale.</p>
       </section>
 
       <section class="mod">
-        <div class="mod-h"><span class="lab">Light</span></div>
-        <div class="rows" id="lightRows"></div>
-      </section>
-
-      <section class="mod">
-        <div class="mod-h"><span class="lab">Centre diffusion</span><span class="lab mute" id="diffTag">Off</span></div>
-        <div class="seg" id="diffSeg" role="group" aria-label="Diffusion pattern"></div>
+        <div class="mod-h"><span class="lab">Centre diffusion</span></div>
+        <div class="seg" id="diffSeg" role="group" aria-label="Centre diffusion"></div>
         <div class="rows" id="diffRows"></div>
       </section>
 
       <section class="mod">
-        <div class="mod-h"><span class="lab">Marks / 0 + 1</span></div>
-        <div class="rows" id="markRows1"></div>
-        <div class="row"><label>Line direction</label><span></span></div>
-        <div class="seg" id="dirSeg"></div>
-        <div class="row" id="fromRow"><label>Burst from</label><span></span></div>
-        <div class="seg" id="fromSeg"></div>
-        <div class="rows" id="markRows2"></div>
-        <label class="toggle">Clump in the shadow<input type="checkbox" id="clustering"></label>
+        <div class="mod-h"><span class="lab">Light</span><span class="lab mute">Drag the dot</span></div>
+        <div class="light">
+          <svg class="pad" id="pad" viewBox="0 0 112 112" tabindex="0" role="slider" aria-label="Light position, use arrow keys to move"></svg>
+          <div class="rows" id="lightRows"></div>
+        </div>
+      </section>
+
+      <section class="mod">
+        <div class="mod-h"><span class="lab">0s and 1s</span><span class="lab mute">Circles / pills</span></div>
+        <div class="rows" id="markRows"></div>
+        <div class="seg" id="dirSeg" role="group" aria-label="Pill direction"></div>
       </section>
 
       <section class="mod">
@@ -203,14 +201,23 @@ input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset
         <label class="toggle">Transparent background<input type="checkbox" id="transparent"></label>
       </section>
 
-      <section class="mod">
-        <div class="mod-h"><span class="lab">Seed</span><span class="lab mute">Arrangement</span></div>
-        <div class="pair">
-          <div class="field"><input id="seed" type="number" min="0" max="99999" step="1" aria-label="Seed"><span class="unit">#</span></div>
-          <button class="btn ghost" id="shuffle">Shuffle</button>
+      <details class="more" id="more">
+        <summary><span class="lab" style="font-weight:600">More settings</span><span class="pm" aria-hidden="true"></span></summary>
+        <div class="more-body">
+          <div class="group-t">Scaling</div>
+          <div class="rows" id="scaleRows"></div>
+          <div class="group-t">0s and 1s, fine tuning</div>
+          <div class="rows" id="fineRows"></div>
+          <div class="row"><label>Radial pills burst from</label><span></span></div>
+          <div class="seg" id="fromSeg" role="group" aria-label="Radial pills burst from"></div>
+          <label class="toggle">Let circles clump in the shadow<input type="checkbox" id="clustering"></label>
+          <div class="group-t">Arrangement</div>
+          <div class="pair">
+            <div class="field"><span class="unit">SEED</span><input id="seed" type="number" min="0" max="99999" step="1" aria-label="Seed"></div>
+            <button class="btn ghost" id="reset">Reset all</button>
+          </div>
         </div>
-        <button class="btn ghost" id="reset">Reset all settings</button>
-      </section>
+      </details>
     </aside>
 
     <section class="stage" id="stage">
@@ -219,10 +226,11 @@ input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset
           <button data-v="single" aria-pressed="true">Single size</button>
           <button data-v="responsive" aria-pressed="false">Responsive</button>
         </div>
-        <div class="seg" id="viewSeg" role="group" aria-label="Zoom" style="min-width:140px">
+        <div class="seg" id="viewSeg" role="group" aria-label="Zoom" style="min-width:120px">
           <button data-v="fit" aria-pressed="true">Fit</button>
           <button data-v="one" aria-pressed="false">1:1</button>
         </div>
+        <button class="btn ghost sm" id="shuffle" title="New random arrangement, same design">Shuffle</button>
         <div class="status lab" id="status"><span class="pulse"></span><span id="statusText">Ready</span></div>
       </div>
       <div class="rsp-ctl" id="rspCtl" hidden>
@@ -237,14 +245,14 @@ input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset
       <div class="stage-foot">
         <div class="reads" id="reads"></div>
         <div class="actions" id="actSingle">
-          <div class="seg" id="fmtSeg" role="group" aria-label="SVG format" title="Elements: circles and lines, best for Figma and Illustrator. Compact: two paths, about 3x smaller, best for the web.">
-            <button data-v="elements" aria-pressed="true">Elements</button>
-            <button data-v="compact" aria-pressed="false">Compact</button>
+          <div class="seg" id="fmtSeg" role="group" aria-label="SVG format" title="For Figma: circles and lines you can edit. For web: two paths, about 2.5x smaller.">
+            <button data-v="elements" aria-pressed="true">For Figma</button>
+            <button data-v="compact" aria-pressed="false">For web</button>
           </div>
           <button class="btn" id="export">Export SVG</button>
         </div>
         <div class="actions" id="actRsp" hidden>
-          <span class="note" id="rspNote">Use as &lt;img&gt;, &lt;object&gt; or CSS background. Detail switches with the drawn size. Inline &lt;svg&gt; and design tools show the middle level only.</span>
+          <span class="note">One file with several detail levels. It picks the right one for the size it is shown at, when used as an &lt;img&gt;, &lt;object&gt; or CSS background.</span>
           <button class="btn" id="exportRsp">Export responsive SVG</button>
         </div>
       </div>
@@ -275,9 +283,9 @@ const Comput = (() => {
     // lighting
     lightX: -0.25, lightY: 0.45, shadowPacking: 5.0, rimPacking: 4.0,
     // centre diffusion: how much of the original density the centre keeps (100 = untouched)
-    centre: 100,         // % density left at the very centre
-    centreReach: 50,     // % how far out towards the rim the thinning reaches
-    centreMode: 'cross', // 'cross' thins across x and y, 'hamburger' mainly along y (a band through the middle)
+    centre: 35,          // % density left in the thinned area (a sparse scatter always survives)
+    centreReach: 50,     // % how far the thinning spreads
+    centreMode: 'off',   // 'off', 'cross' (thins out from the middle) or 'hamburger' (a band across the middle)
     // marks
     lineShare: 0.6, lineLength: 1.9, lineWeight: 0.8,
     direction: 'radial', radialFrom: 'centre', foreshorten: 0.4,
@@ -356,20 +364,31 @@ const Comput = (() => {
     ? (() => { const ch = new MessageChannel(), q = []; ch.port1.onmessage = () => q.shift()(); if (ch.port1.unref) ch.port1.unref(); return () => new Promise((res) => { q.push(res); ch.port2.postMessage(0); }); })()
     : () => new Promise((res) => setTimeout(res, 0));
 
-  async function generate(p, size, opt = {}) {
-    const onProgress = opt.onProgress || (() => {});
-    const cancelled = opt.cancelled || (() => false);
+  function yielder(opt, from, span) {
+    const onProgress = opt.onProgress || (() => {}), cancelled = opt.cancelled || (() => false);
+    let last = Date.now();
+    return async (frac) => {
+      if (Date.now() - last > 30) {
+        onProgress(from + span * frac); await tick(); last = Date.now();
+        if (cancelled()) throw new Cancelled();
+      }
+    };
+  }
+
+  // Settings that move the marks. Anything else (0s and 1s, colour) reuses the positions.
+  const POSITION_KEYS = ['base', 'baseMarks', 'grainBase', 'growth', 'minGrain', 'maxMarks', 'lightX', 'lightY',
+    'shadowPacking', 'rimPacking', 'centre', 'centreReach', 'centreMode', 'organic', 'seed'];
+  function positionsKey(p, size, draft) {
+    return size + '|' + (draft ? 'd' : 'f') + '|' + POSITION_KEYS.map((k) => p[k]).join('|');
+  }
+
+  // Stage A (slow): where the marks sit on the ball. draft = fewer relaxation passes, for live dragging.
+  async function positions(p, size, opt = {}) {
+    const maybeYield = yielder(opt, 0, opt.draft ? 1 : 0.88);
     const t0 = Date.now();
     const pl = plan(p, size);
     let N = pl.n;
     const R = rng(p.seed);
-    let last = Date.now();
-    const maybeYield = async (frac) => {
-      if (Date.now() - last > 30) {
-        onProgress(frac); await tick(); last = Date.now();
-        if (cancelled()) throw new Cancelled();
-      }
-    };
 
     // ---------- 1. density on the unit ball (y up) ----------
     let L0 = p.lightX, L1 = p.lightY, L2 = 1;
@@ -382,19 +401,19 @@ const Comput = (() => {
       return (1 + SP * sh * sh + RP * Math.pow(rim, 2.5)) * keep(x, y, nz);
     };
 
-    // centre diffusion: thin the marks where the ball faces you, leave the rim as it is.
-    // keep() = share of the original density kept; 1 at the rim, `centre` at the middle.
-    // cross: falls off with how much the ball faces you (x and y alike).
-    // hamburger: falls off mainly with height, so a band through the middle thins while
-    // the top and bottom stay packed; a little of the facing term keeps the side rims crisp.
-    const CV = Math.min(1, Math.max(0, p.centre / 100));
+    // centre diffusion. keep() = share of the original density kept.
+    // cross: thins outwards from the middle; the rim stays packed.
+    // hamburger: thins a horizontal band right across the ball, through the left and right
+    // edges too, so the top and bottom read as two packed buns.
+    // Even at 0% a sparse scatter survives (4% of the density), so it never wipes clean.
+    const CV = p.centreMode === 'off' ? 1 : 0.04 + 0.96 * Math.min(1, Math.max(0, p.centre / 100));
     const CE = 4 - 3.65 * Math.min(1, Math.max(0, p.centreReach / 100)); // reach 0 → tight centre spot, 1 → reaches the rim
     const HAM = p.centreMode === 'hamburger';
     const HBW = 0.15 + 0.6 * Math.min(1, Math.max(0, p.centreReach / 100)); // band half-height
     function keep(x, y, nz) {
       if (CV >= 1) return 1;
       let w;
-      if (HAM) { const cy = Math.sqrt(Math.max(0, 1 - y * y)), u = y / HBW; w = Math.exp(-u * u) * (cy > 1e-6 ? Math.pow(nz / cy, 0.6) : 0); }
+      if (HAM) { const u = y / HBW; w = Math.exp(-u * u); }
       else w = Math.pow(nz, CE);
       return 1 - (1 - CV) * w;
     }
@@ -411,7 +430,7 @@ const Comput = (() => {
     }
 
     // ---------- 2. density-weighted samples, then Lloyd (k-means) relaxation ----------
-    const M = Math.round(Math.min(3.2e6, Math.max(40000, N * 14)));
+    const M = Math.round(Math.min(3.2e6, opt.draft ? Math.max(20000, N * 6) : Math.max(40000, N * 14)));
     const G = Math.ceil(Math.sqrt((4 * M) / Math.PI)), cs = 2 / G;
     const W = new Float32Array(G * G);
     let tot = 0;
@@ -442,7 +461,7 @@ const Comput = (() => {
       X[i] = SX[k] + (R() - 0.5) * cs; Y[i] = SY[k] + (R() - 0.5) * cs;
     }
 
-    const iters = Math.round(4 + 40 * (1 - p.organic));
+    const iters = opt.draft ? Math.min(3, Math.round(4 + 40 * (1 - p.organic))) : Math.round(4 + 40 * (1 - p.organic));
     const h = Math.sqrt((2 * Math.PI) / N), GMIN = -1.02, GS = Math.ceil(2.04 / h);
     const AX = new Float64Array(N), AY = new Float64Array(N), AC = new Int32Array(N);
     for (let it = 0; it < iters; it++) {
@@ -469,7 +488,7 @@ const Comput = (() => {
           }
         }
         AX[bi] += x; AY[bi] += y; AC[bi]++;
-        if ((q & 0xffff) === 0) await maybeYield(0.04 + 0.82 * ((it + q / m) / iters));
+        if ((q & 0xffff) === 0) await maybeYield(0.04 + 0.96 * ((it + q / m) / iters));
       }
       for (let i = 0; i < N; i++) if (AC[i]) { X[i] = AX[i] / AC[i]; Y[i] = AY[i] / AC[i]; }
     }
@@ -494,7 +513,16 @@ const Comput = (() => {
         if (r > LIM) { X[i] *= LIM / r; Y[i] *= LIM / r; }
       }
     }
+    return { key: positionsKey(p, size, opt.draft), plan: pl, n: N, X, Y, L0, L1, draft: !!opt.draft, ms: Date.now() - t0 };
+  }
 
+  // Stage B (fast): turn positions into 0s and 1s. Has its own random stream so it
+  // gives the same result whether or not the positions came from the cache.
+  async function place(pos, p, opt = {}) {
+    const maybeYield = yielder(opt, pos.fromCache || pos.draft ? 0 : 0.88, pos.fromCache || pos.draft ? 1 : 0.12);
+    const t0 = Date.now();
+    const { plan: pl, n: N, X, Y, L0, L1 } = pos;
+    const R = rng(p.seed + 7919);
     // ---------- 3. marks in output pixels ----------
     const S = pl.size, RP_ = pl.radius, D = pl.grain, rad = D / 2;
     const lw = D * p.lineWeight, gap = (p.gap / 100) * D;
@@ -566,16 +594,30 @@ const Comput = (() => {
         if (!clash) { shape[i] = tryLine ? 1 : 0; placed = true; }
       }
       if (!placed) shape[i] = p.clustering ? 0 : -1;
-      if ((oi & 0x3fff) === 0) await maybeYield(0.86 + 0.14 * (oi / N));
+      if ((oi & 0x3fff) === 0) await maybeYield(oi / N);
     }
 
     let circles = 0, lines = 0, dropped = 0;
     for (let i = 0; i < N; i++) shape[i] === 0 ? circles++ : shape[i] === 1 ? lines++ : dropped++;
-    onProgress(1);
     return {
       size: S, plan: pl, grain: D, rad, lw, n: N, x: PX, y: PY, ux: UX, uy: UY, half: HALF, shape,
-      circles, lines, dropped, ms: Date.now() - t0,
+      circles, lines, dropped, draft: pos.draft, ms: Date.now() - t0 + (pos.fromCache ? 0 : pos.ms),
     };
+  }
+
+  // Full run. opt.cache: a Map reused between calls, so changing only the 0s and 1s
+  // skips the slow stage. opt.draft: quick low-relaxation preview.
+  async function generate(p, size, opt = {}) {
+    const key = positionsKey(p, size, opt.draft);
+    let pos = opt.cache && opt.cache.get(key);
+    if (pos) { pos = { ...pos, fromCache: true }; opt.cache.delete(key); opt.cache.set(key, pos); }
+    else {
+      pos = await positions(p, size, opt);
+      if (opt.cache) { opt.cache.set(key, pos); while (opt.cache.size > 8) opt.cache.delete(opt.cache.keys().next().value); }
+    }
+    const res = await place(pos, p, opt);
+    (opt.onProgress || (() => {}))(1);
+    return res;
   }
 
   // ---------- SVG ----------
@@ -645,7 +687,7 @@ const Comput = (() => {
       `<style>${css}</style>` + bgRect(p, V) + groups + `</svg>`;
   }
 
-  return { DEFAULTS, plan, generate, svg, responsiveSvg, thresholds, Cancelled };
+  return { DEFAULTS, POSITION_KEYS, plan, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
 })();
 if (typeof module !== 'undefined') module.exports = Comput;
 
@@ -654,65 +696,64 @@ if (typeof module !== 'undefined') module.exports = Comput;
 (() => {
   const $ = (id) => document.getElementById(id);
   const D = Comput.DEFAULTS;
+  const POS = new Set(Comput.POSITION_KEYS);
   const SIZES = [32, 64, 128, 256, 512, 1024, 2048, 4096];
-  const KEY = 'comput.v1';
+  const KEY = 'comput.v2';
   let p = { ...D };
   let ui = { mode: 'single', view: 'fit', fmt: 'elements', lods: [128, 512, 2048], rspW: 512 };
-  try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) { p = { ...D, ...s.p }; ui = { ...ui, ...s.ui }; } } catch (e) {}
+  try {
+    let s = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (!s) { // carry over settings from the first version
+      s = JSON.parse(localStorage.getItem('comput.v1') || 'null');
+      if (s && s.p) { if (!(s.p.centre < 100)) { s.p.centreMode = 'off'; s.p.centre = D.centre; } }
+    }
+    if (s) { p = { ...D, ...s.p }; ui = { ...ui, ...s.ui }; }
+  } catch (e) {}
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ p, ui })); } catch (e) {} };
 
   // ---------- slider rows ----------
-  const fmt = {
-    n: (d) => (v) => (+v).toFixed(d),
-    int: (v) => Math.round(v).toLocaleString('en-GB'),
-    px: (v) => `${(+v).toFixed(2)} px`,
-    pct: (v) => `${Math.round(v * 100)}%`,
-    frac: (v) => `1/${Math.round(v)}`,
-    deg: (v) => `${(+v).toFixed(0)}°`,
-  };
+  const f2 = (v) => (+v).toFixed(2), pct = (v) => `${Math.round(v)}%`, int = (v) => Math.round(v).toLocaleString('en-GB');
   const ROWS = {
-    lawRows: [
-      ['growth', 'Mark size growth', 0, 1, 0.01, fmt.n(2), '0 keeps every 0 and 1 the same pixel size. 1 scales them with the logo, the old behaviour.'],
-      ['base', 'Base size', 32, 512, 1, (v) => `${Math.round(v)} px`, 'The size where the logo matches the original script.'],
-      ['baseMarks', 'Marks at base size', 500, 12000, 50, fmt.int],
-      ['grainBase', 'Mark size at base', 30, 160, 1, fmt.frac, 'Circle diameter as a share of the sphere width.'],
-      ['minGrain', 'Smallest mark', 0.3, 3, 0.05, fmt.px, 'Below this, small logos use fewer, larger marks so the 0s and 1s stay readable.'],
-      ['maxMarks', 'Most marks', 10000, 400000, 5000, fmt.int, 'Past this the marks grow instead. Big counts mean big files.'],
+    diffRows: [
+      ['centre', 'Density left in the middle', 0, 100, 1, pct],
+      ['centreReach', 'Spread', 0, 100, 1, pct],
     ],
     lightRows: [
-      ['lightX', 'Light left / right', -1, 1, 0.01, fmt.n(2)],
-      ['lightY', 'Light bottom / top', -1, 1, 0.01, fmt.n(2)],
-      ['shadowPacking', 'Shadow packing', 0, 12, 0.1, fmt.n(1)],
-      ['rimPacking', 'Rim packing', 0, 12, 0.1, fmt.n(1)],
+      ['shadowPacking', 'Shadow', 0, 12, 0.1, (v) => (+v).toFixed(1)],
+      ['rimPacking', 'Rim', 0, 12, 0.1, (v) => (+v).toFixed(1)],
     ],
-    diffRows: [
-      ['centre', 'Centre density', 0, 100, 1, (v) => `${Math.round(v)}%`, '100% is the original. Slide down to thin out the middle. Cross thins outwards from the centre, Hamburger thins a band across the middle and keeps the top and bottom packed.'],
-      ['centreReach', 'Reach', 0, 100, 1, (v) => `${Math.round(v)}%`, 'How far towards the rim the thinning spreads.'],
+    markRows: [
+      ['lineShare', 'Share of 1s (pills)', 0, 1, 0.01, (v) => `${Math.round(v * 100)}%`],
+      ['lineLength', 'Pill length', 1, 4, 0.05, (v) => `${(+v).toFixed(2)}×`],
     ],
-    markRows1: [
-      ['lineShare', 'Share of lines (1s)', 0, 1, 0.01, fmt.pct],
-      ['lineLength', 'Line length', 1, 4, 0.05, (v) => `${(+v).toFixed(2)}×`],
-      ['lineWeight', 'Line weight', 0.3, 1.2, 0.01, (v) => `${(+v).toFixed(2)}×`],
+    scaleRows: [
+      ['growth', 'How fast marks grow with size', 0, 1, 0.01, f2],
+      ['base', 'Base size', 32, 512, 1, (v) => `${Math.round(v)} px`],
+      ['baseMarks', 'Marks at base size', 500, 12000, 50, int],
+      ['grainBase', 'Mark size at base', 30, 160, 1, (v) => `1/${Math.round(v)}`],
+      ['minGrain', 'Smallest mark', 0.3, 3, 0.05, (v) => `${(+v).toFixed(2)} px`],
+      ['maxMarks', 'Most marks', 10000, 400000, 5000, int],
     ],
-    markRows2: [
-      ['foreshorten', 'Foreshorten', 0, 1, 0.01, fmt.n(2)],
-      ['organic', 'Organic', 0, 1, 0.01, fmt.n(2), '0 is even and orderly, 1 is a loose natural scatter.'],
-      ['wiggle', 'Angle wiggle', 0, 30, 1, fmt.deg],
+    fineRows: [
+      ['lineWeight', 'Pill weight', 0.3, 1.2, 0.01, (v) => `${(+v).toFixed(2)}×`],
+      ['foreshorten', 'Shorter pills near the edge', 0, 1, 0.01, f2],
+      ['organic', 'Organic', 0, 1, 0.01, f2],
+      ['wiggle', 'Angle wiggle', 0, 30, 1, (v) => `${Math.round(v)}°`],
       ['gap', 'Gap between marks', 0, 40, 1, (v) => `${Math.round(v)}% of mark`],
     ],
   };
   const inputs = {};
   for (const [host, rows] of Object.entries(ROWS)) {
     const el = $(host);
-    for (const [k, label, min, max, step, f, hint] of rows) {
+    for (const [k, label, min, max, step, f] of rows) {
       const row = document.createElement('div'); row.className = 'row';
       const id = 'r_' + k;
-      row.innerHTML = `<label for="${id}">${label}</label><output class="num" for="${id}"></output>` +
-        `<input type="range" id="${id}" min="${min}" max="${max}" step="${step}">` + (hint ? `<p class="hint">${hint}</p>` : '');
+      row.innerHTML = `<label for="${id}">${label}</label><output class="num" for="${id}"></output><input type="range" id="${id}" min="${min}" max="${max}" step="${step}">`;
       el.appendChild(row);
       const inp = row.querySelector('input'), out = row.querySelector('output');
-      inputs[k] = { inp, out, f };
-      inp.addEventListener('input', () => { p[k] = +inp.value; out.textContent = f(p[k]); changed(k); });
+      inputs[k] = { inp, out, f, row };
+      inp.addEventListener('input', () => { p[k] = +inp.value; out.textContent = f(p[k]); changed(k, true); });
+      inp.addEventListener('change', () => changed(k, false));
     }
   }
 
@@ -723,29 +764,53 @@ if (typeof module !== 'undefined') module.exports = Comput;
     el.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; set(b.dataset.v); sync(); });
     sync(); return sync;
   }
-  const syncDir = seg('dirSeg', [['radial', 'Radial'], ['follow', 'Follow'], ['vertical', 'Upright']], () => p.direction, (v) => { p.direction = v; changed('direction'); });
-  const syncFrom = seg('fromSeg', [['centre', 'Centre'], ['light', 'Light spot']], () => p.radialFrom, (v) => { p.radialFrom = v; changed('radialFrom'); });
-  const syncDiff = seg('diffSeg', [['cross', 'Cross'], ['hamburger', 'Hamburger']], () => p.centreMode, (v) => { p.centreMode = v; changed('centreMode'); });
-  const syncMode = seg('modeSeg', null, () => ui.mode, (v) => { ui.mode = v; save(); applyMode(); });
-  const syncView = seg('viewSeg', null, () => ui.view, (v) => { ui.view = v; save(); layout(); });
-  const syncFmt = seg('fmtSeg', null, () => ui.fmt, (v) => { ui.fmt = v; save(); });
+  const syncs = [
+    seg('diffSeg', [['off', 'Off'], ['cross', 'Cross'], ['hamburger', 'Hamburger']], () => p.centreMode, (v) => { p.centreMode = v; changed('centreMode'); }),
+    seg('dirSeg', [['radial', 'Radial'], ['follow', 'Follow'], ['vertical', 'Upright']], () => p.direction, (v) => { p.direction = v; changed('direction'); }),
+    seg('fromSeg', [['centre', 'Centre'], ['light', 'Light spot']], () => p.radialFrom, (v) => { p.radialFrom = v; changed('radialFrom'); }),
+    seg('modeSeg', null, () => ui.mode, (v) => { ui.mode = v; save(); applyMode(); }),
+    seg('viewSeg', null, () => ui.view, (v) => { ui.view = v; save(); layout(); }),
+    seg('fmtSeg', null, () => ui.fmt, (v) => { ui.fmt = v; save(); }),
+  ];
 
-  // size chips
-  $('sizeChips').innerHTML = SIZES.map((s) => `<button class="chip" data-s="${s}">${s >= 1024 ? s / 1024 + 'K' : s}</button>`).join('');
-  $('sizeChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; p.size = +b.dataset.s; $('size').value = p.size; changed('size'); });
-  $('size').addEventListener('change', () => { p.size = Math.max(16, Math.min(8192, Math.round(+$('size').value || 512))); $('size').value = p.size; changed('size'); });
-  $('lodChips').innerHTML = SIZES.map((s) => `<button class="chip" data-s="${s}">${s >= 1024 ? s / 1024 + 'K' : s}</button>`).join('');
+  // ---------- light pad ----------
+  const pad = $('pad'), PC = 56, PR = 50;
+  function drawPad() {
+    const x = PC + p.lightX * PR, y = PC - p.lightY * PR;
+    pad.innerHTML = `<line class="hair" x1="${PC - PR}" x2="${PC + PR}" y1="${PC}" y2="${PC}"/><line class="hair" y1="${PC - PR}" y2="${PC + PR}" x1="${PC}" x2="${PC}"/>` +
+      `<circle class="ball" cx="${PC}" cy="${PC}" r="${PR}"/><circle class="glow" cx="${x}" cy="${y}" r="18"/><circle class="dot" cx="${x}" cy="${y}" r="5"/>`;
+    pad.setAttribute('aria-valuetext', `left right ${f2(p.lightX)}, bottom top ${f2(p.lightY)}`);
+  }
+  function setLight(nx, ny, live) {
+    const r = Math.hypot(nx, ny); if (r > 1) { nx /= r; ny /= r; }
+    p.lightX = Math.round(nx * 100) / 100; p.lightY = Math.round(ny * 100) / 100;
+    drawPad(); changed('lightX', live);
+  }
+  const fromEvent = (e) => { const b = pad.getBoundingClientRect(), s = 112 / b.width; return [((e.clientX - b.left) * s - PC) / PR, (PC - (e.clientY - b.top) * s) / PR]; };
+  pad.addEventListener('pointerdown', (e) => { pad.setPointerCapture(e.pointerId); setLight(...fromEvent(e), true); });
+  pad.addEventListener('pointermove', (e) => { if (pad.hasPointerCapture(e.pointerId)) setLight(...fromEvent(e), true); });
+  pad.addEventListener('pointerup', (e) => { if (pad.hasPointerCapture(e.pointerId)) { pad.releasePointerCapture(e.pointerId); changed('lightX', false); } });
+  pad.addEventListener('keydown', (e) => {
+    const d = { ArrowLeft: [-0.05, 0], ArrowRight: [0.05, 0], ArrowUp: [0, 0.05], ArrowDown: [0, -0.05] }[e.key];
+    if (!d) return; e.preventDefault(); setLight(p.lightX + d[0], p.lightY + d[1], false);
+  });
+
+  // ---------- size, levels, colour, misc ----------
+  const lbl = (s) => (s >= 1024 ? s / 1024 + 'K' : s);
+  $('sizeChips').innerHTML = SIZES.map((s) => `<button class="chip" data-s="${s}">${lbl(s)}</button>`).join('');
+  $('sizeChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; p.size = +b.dataset.s; changed('size'); });
+  $('size').addEventListener('change', () => { p.size = Math.max(16, Math.min(8192, Math.round(+$('size').value || 512))); changed('size'); });
+  $('lodChips').innerHTML = SIZES.map((s) => `<button class="chip" data-s="${s}">${lbl(s)}</button>`).join('');
   $('lodChips').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return; const s = +b.dataset.s;
     const has = ui.lods.includes(s);
     if (has && ui.lods.length <= 1) return toast('Keep at least one detail level');
     ui.lods = has ? ui.lods.filter((x) => x !== s) : [...ui.lods, s].sort((a, b) => a - b);
-    save(); syncAll(); schedule();
+    save(); syncAll(); schedule(false, 60);
   });
 
-  // colour
   const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
-  const full = (h) => h.length === 4 ? '#' + [...h.slice(1)].map((c) => c + c).join('') : h;
+  const full = (h) => (h.length === 4 ? '#' + [...h.slice(1)].map((c) => c + c).join('') : h);
   $('color').addEventListener('change', () => { const v = $('color').value.trim(); if (HEX.test(v)) { p.color = v; changed('color'); } else syncAll(); });
   $('colorPick').addEventListener('input', () => { p.color = $('colorPick').value; changed('color'); });
   let lastBg = p.background === 'none' ? '#2f2f2f' : p.background;
@@ -758,8 +823,10 @@ if (typeof module !== 'undefined') module.exports = Comput;
   $('reset').addEventListener('click', () => { p = { ...D, size: p.size }; changed('all'); toast('Settings reset'); });
   $('theme').addEventListener('click', () => {
     const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-    r.dataset.theme = dark ? 'light' : 'dark'; drawLaw();
+    r.dataset.theme = dark ? 'light' : 'dark';
   });
+  try { if (localStorage.getItem('comput.more') === '1') $('more').open = true; } catch (e) {}
+  $('more').addEventListener('toggle', () => { try { localStorage.setItem('comput.more', $('more').open ? '1' : '0'); } catch (e) {} });
 
   function syncAll() {
     for (const [k, { inp, out, f }] of Object.entries(inputs)) { inp.value = p[k]; out.textContent = f(p[k]); }
@@ -771,48 +838,26 @@ if (typeof module !== 'undefined') module.exports = Comput;
     $('bg').value = bgv; $('bgPick').value = full(bgv); $('transparent').checked = p.background === 'none';
     $('bg').disabled = $('bgPick').disabled = p.background === 'none';
     $('clustering').checked = p.clustering; $('seed').value = p.seed;
-    $('hSeed').textContent = String(p.seed).padStart(3, '0');
-    $('fromRow').hidden = $('fromSeg').hidden = p.direction !== 'radial';
-    inputs.foreshorten.inp.parentElement.hidden = p.direction !== 'radial';
-    $('diffTag').textContent = p.centre >= 100 ? 'Off' : `${100 - Math.round(p.centre)}% diffused`;
-    inputs.centreReach.inp.parentElement.classList.toggle('dim', p.centre >= 100);
-    $('lawFormula').textContent = `mark ∝ size^${(+p.growth).toFixed(2)}`;
-    syncDir(); syncFrom(); syncDiff(); syncMode(); syncView(); syncFmt();
-  }
-
-  // ---------- scaling law chart ----------
-  function drawLaw() {
-    const W = 300, H = 132, l = 30, r = 8, t = 16, b = 22;
-    const x0 = Math.log2(16), x1 = Math.log2(4096);
-    const X = (s) => l + ((Math.log2(s) - x0) / (x1 - x0)) * (W - l - r);
-    const pts = [], old = [];
-    for (let e = x0; e <= x1 + 1e-9; e += 0.05) { const s = 2 ** e; pts.push([s, Comput.plan(p, s).grain]); old.push([s, (2 * 0.44 * s) / p.grainBase]); }
-    const ymaxRaw = Math.max(...pts.map((q) => q[1])) * 1.5;
-    const step = ymaxRaw <= 4 ? 1 : ymaxRaw <= 10 ? 2 : ymaxRaw <= 25 ? 5 : 10;
-    const ymax = Math.ceil(ymaxRaw / step) * step;
-    const Y = (v) => H - b - (v / ymax) * (H - t - b);
-    let s = `<defs><clipPath id="lc"><rect x="${l}" y="${t}" width="${W - l - r}" height="${H - t - b}"/></clipPath></defs>`;
-    for (let v = 0; v <= ymax + 1e-9; v += step) s += `<line class="grid" x1="${l}" x2="${W - r}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${l - 6}" y="${Y(v) + 3}" text-anchor="end">${v}</text>`;
-    for (const sz of [16, 64, 256, 1024, 4096]) s += `<text x="${X(sz)}" y="${H - 6}" text-anchor="middle">${sz >= 1024 ? sz / 1024 + 'K' : sz}</text>`;
-    s += `<line class="ax" x1="${l}" x2="${W - r}" y1="${H - b}" y2="${H - b}"/>`;
-    const path = (a) => a.map((q, i) => `${i ? 'L' : 'M'}${X(q[0]).toFixed(1)} ${Y(q[1]).toFixed(1)}`).join('');
-    s += `<g clip-path="url(#lc)"><path class="old" d="${path(old)}"/><path class="cur" d="${path(pts)}"/></g>`;
-    const cg = Comput.plan(p, p.size);
-    if (p.size >= 16 && p.size <= 4096) s += `<circle class="dot" cx="${X(p.size)}" cy="${Y(cg.grain)}" r="3.5"/>`;
-    s += `<text x="${l}" y="9">MARK PX</text><text x="${W - r}" y="9" text-anchor="end"><tspan class="lg">— now</tspan>   - - - original</text>`;
-    $('lawChart').innerHTML = s;
+    $('diffRows').hidden = p.centreMode === 'off';
+    inputs.foreshorten.row.hidden = p.direction !== 'radial';
+    $('fromSeg').hidden = $('fromSeg').previousElementSibling.hidden = p.direction !== 'radial';
+    drawPad(); syncs.forEach((s) => s());
   }
 
   // ---------- generation ----------
-  let job = 0, single = null, rsp = null, rspUrl = null, rspSvgText = '', rspResults = [], dirty = { single: true, rsp: true }, timer = 0;
-  const NO_REGEN = new Set(['color', 'background']);
-  function changed(k) {
-    save(); syncAll(); drawLaw();
-    if (NO_REGEN.has(k)) { if (single) draw(single); if (rspResults.length) composeRsp(); return; }
-    if (k === 'size') { dirty.single = true; } else { dirty.single = dirty.rsp = true; }
-    schedule();
+  // Two speeds: while a control is being dragged we draw a quick draft (fewer relaxation
+  // passes); when it is let go we draw the full version. Changing only the 0s and 1s
+  // or the colour reuses the computed positions, so those updates are near instant.
+  const cache = new Map();
+  let job = 0, single = null, rspUrl = null, rspSvgText = '', rspResults = [], timer = 0, finalDue = false;
+  function changed(k, live = false) {
+    save(); if (k !== 'lightX') syncAll();
+    if (k === 'color' || k === 'background') { if (single) draw(single); if (rspResults.length) composeRsp(); return; }
+    const slow = POS.has(k) || k === 'all' || k === 'size';
+    if (live && slow) { finalDue = true; schedule(true, 30); }
+    else schedule(false, live ? 0 : 40);
   }
-  function schedule() { clearTimeout(timer); timer = setTimeout(run, 180); }
+  function schedule(draft, wait) { clearTimeout(timer); timer = setTimeout(() => run(draft), wait); }
 
   function busy(on, txt, frac) {
     $('status').classList.toggle('busy', on);
@@ -820,31 +865,36 @@ if (typeof module !== 'undefined') module.exports = Comput;
     $('bar').style.width = on ? `${Math.round((frac || 0) * 100)}%` : '0%';
   }
 
-  async function run() {
+  async function run(draft) {
     const my = ++job, cancelled = () => my !== job;
+    if (!draft) finalDue = false;
     try {
-      if (ui.mode === 'single') {
-        if (!dirty.single && single && single.size === p.size) return;
-        const pl = Comput.plan(p, p.size);
-        busy(true, `Computing ${pl.n.toLocaleString('en-GB')} marks`, 0);
-        const r = await Comput.generate(p, p.size, { cancelled, onProgress: (f) => busy(true, `Computing ${pl.n.toLocaleString('en-GB')} marks · ${Math.round(f * 100)}%`, f) });
+      const sizes = ui.mode === 'single' ? [p.size] : ui.lods.slice().sort((a, b) => a - b), out = [];
+      const t0 = performance.now();
+      for (let i = 0; i < sizes.length; i++) {
+        const label = draft ? 'Preview' : ui.mode === 'single' ? 'Computing' : `Level ${i + 1}/${sizes.length}`;
+        const r = await Comput.generate(p, sizes[i], {
+          cache, draft, cancelled,
+          onProgress: (f) => { if (performance.now() - t0 > 120) busy(true, `${label} · ${Math.round(((i + f) / sizes.length) * 100)}%`, (i + f) / sizes.length); },
+        });
         if (cancelled()) return;
-        single = r; dirty.single = false; draw(r); reads(); busy(false, 'Ready');
-      } else {
-        const sizes = ui.lods.slice().sort((a, b) => a - b), out = [];
-        for (let i = 0; i < sizes.length; i++) {
-          const pl = Comput.plan(p, sizes[i]);
-          const r = await Comput.generate(p, sizes[i], { cancelled, onProgress: (f) => busy(true, `Level ${i + 1}/${sizes.length} · ${sizes[i]} px · ${Math.round(f * 100)}%`, (i + f) / sizes.length) });
-          if (cancelled()) return;
-          out.push(r);
-        }
-        rspResults = out; dirty.rsp = false; composeRsp(); busy(false, 'Ready');
+        out.push(r);
       }
+      if (ui.mode === 'single') { single = out[0]; draw(single); } else { rspResults = out; composeRsp(); }
+      reads();
+      busy(false, draft ? 'Preview · full detail on release' : 'Ready');
+      if (draft && finalDue && !dragging()) schedule(false, 0);
     } catch (e) {
       if (e instanceof Comput.Cancelled) return;
       console.error(e); busy(false, 'Error: ' + e.message);
     }
   }
+  // a slider or the light pad still held down
+  let held = 0;
+  document.addEventListener('pointerdown', () => { held++; }, true);
+  document.addEventListener('pointerup', () => { held = 0; if (finalDue) schedule(false, 0); }, true);
+  document.addEventListener('pointercancel', () => { held = 0; }, true);
+  const dragging = () => held > 0;
 
   function composeRsp() {
     rspSvgText = Comput.responsiveSvg(rspResults, p);
@@ -862,7 +912,8 @@ if (typeof module !== 'undefined') module.exports = Comput;
   function draw(r) {
     const cv = $('cv'), vs = viewScale(r.size), css = r.size * vs;
     const dpr = Math.min(window.devicePixelRatio || 1, 6000 / css), px = Math.max(1, Math.round(css * dpr));
-    cv.width = px; cv.height = px; cv.style.width = css + 'px'; cv.style.height = css + 'px';
+    if (cv.width !== px) { cv.width = px; cv.height = px; }
+    cv.style.width = css + 'px'; cv.style.height = css + 'px';
     const ctx = cv.getContext('2d'), k = px / r.size;
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, px, px);
     if (p.background !== 'none') { ctx.fillStyle = p.background; ctx.fillRect(0, 0, px, px); }
@@ -884,40 +935,36 @@ if (typeof module !== 'undefined') module.exports = Comput;
   $('rspW').addEventListener('input', () => { ui.rspW = toW(+$('rspW').value); save(); layout(); reads(); });
 
   function activeLevel(w) {
-    const sizes = rspResults.map((r) => r.size), t = Comput.thresholds(sizes);
+    const t = Comput.thresholds(rspResults.map((r) => r.size));
     let i = 0; while (i < t.length && w >= t[i]) i++;
     return rspResults[i];
   }
 
   function layout() {
-    const v = $('view');
-    v.classList.toggle('one', ui.view === 'one');
-    if (ui.mode === 'single') { if (single) draw(single); }
-    else {
-      const w = ui.rspW; $('rspW').value = fromW(w); $('rspWOut').textContent = `${w} PX`;
-      const img = $('rspImg'); img.style.width = w + 'px'; img.style.height = w + 'px';
-      const a = rspResults.length ? activeLevel(w) : null;
-      $('boardTag').textContent = a ? `DRAWN AT ${w} PX · DETAIL LEVEL ${a.size} PX` : 'BUILDING…';
-    }
+    $('view').classList.toggle('one', ui.view === 'one');
+    if (ui.mode === 'single') { if (single) draw(single); return; }
+    const w = ui.rspW; $('rspW').value = fromW(w); $('rspWOut').textContent = `${w} PX`;
+    const img = $('rspImg'); img.style.width = w + 'px'; img.style.height = w + 'px';
+    const a = rspResults.length ? activeLevel(w) : null;
+    $('boardTag').textContent = a ? `DRAWN AT ${w} PX · DETAIL LEVEL ${a.size} PX` : 'BUILDING…';
   }
 
-  function kb(n) { return n > 1e6 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; }
+  const kb = (n) => (n > 1e6 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+  const fmtN = (n) => n.toLocaleString('en-GB');
   function reads() {
     const el = $('reads');
     const cell = (k, v) => `<div><span class="lab mute">${k}</span><span class="v">${v}</span></div>`;
     if (ui.mode === 'single') {
       if (!single) { el.innerHTML = ''; return; }
       const r = single;
-      el.innerHTML = cell('Size', `${r.size} px`) + cell('Marks', (r.circles + r.lines).toLocaleString('en-GB')) +
-        cell('0 / 1', `${r.circles.toLocaleString('en-GB')} / ${r.lines.toLocaleString('en-GB')}`) +
-        cell('Mark size', `${r.grain.toFixed(2)} px`) + cell('Time', `${(r.ms / 1000).toFixed(1)} s`);
+      el.innerHTML = cell('Size', `${r.size} px`) + cell('0s', fmtN(r.circles)) + cell('1s', fmtN(r.lines)) +
+        cell('Mark size', `${r.grain.toFixed(2)} px`) + cell('Seed', String(p.seed).padStart(3, '0'));
     } else {
       if (!rspResults.length) { el.innerHTML = ''; return; }
       const a = activeLevel(ui.rspW), tot = rspResults.reduce((s, r) => s + r.circles + r.lines, 0);
       el.innerHTML = cell('Levels', rspResults.map((r) => r.size).join(' / ')) +
-        cell('Active', `${a.size} px · ${(a.circles + a.lines).toLocaleString('en-GB')}`) +
-        cell('Mark size now', `${(a.grain * ui.rspW / a.size).toFixed(2)} px`) +
-        cell('Total marks', tot.toLocaleString('en-GB')) + cell('File', kb(new Blob([rspSvgText]).size));
+        cell('Showing', `${a.size} px level`) + cell('Mark size now', `${((a.grain * ui.rspW) / a.size).toFixed(2)} px`) +
+        cell('Total marks', fmtN(tot)) + cell('File', kb(new Blob([rspSvgText]).size));
     }
   }
 
@@ -925,7 +972,7 @@ if (typeof module !== 'undefined') module.exports = Comput;
     const r = ui.mode === 'responsive';
     $('rspCtl').hidden = !r; $('actRsp').hidden = !r; $('actSingle').hidden = r;
     $('cv').hidden = r; $('rspImg').hidden = !r; $('viewSeg').hidden = r;
-    syncAll(); layout(); reads(); schedule();
+    syncAll(); layout(); reads(); schedule(false, 0);
   }
 
   // ---------- export ----------
@@ -942,13 +989,21 @@ if (typeof module !== 'undefined') module.exports = Comput;
     document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
     toast(`Saved ${filename}`);
   }
-  $('export').addEventListener('click', () => {
-    if (!single || dirty.single) return toast('Still computing, try again in a moment');
-    saveFile(`comput-sphere-${single.size}px-seed${p.seed}${ui.fmt === 'compact' ? '-compact' : ''}.svg`, Comput.svg(single, p, ui.fmt));
+  // exports always use full detail, never a draft
+  async function fullResults(sizes) {
+    const out = [];
+    for (const s of sizes) out.push(await Comput.generate(p, s, { cache }));
+    return out;
+  }
+  $('export').addEventListener('click', async () => {
+    busy(true, 'Preparing SVG');
+    const [r] = await fullResults([p.size]); busy(false, 'Ready');
+    saveFile(`comput-sphere-${r.size}px-seed${p.seed}${ui.fmt === 'compact' ? '-web' : ''}.svg`, Comput.svg(r, p, ui.fmt));
   });
-  $('exportRsp').addEventListener('click', () => {
-    if (!rspResults.length || dirty.rsp) return toast('Still computing, try again in a moment');
-    saveFile(`comput-sphere-responsive-${rspResults.map((r) => r.size).join('-')}-seed${p.seed}.svg`, rspSvgText);
+  $('exportRsp').addEventListener('click', async () => {
+    busy(true, 'Preparing SVG');
+    const rs = await fullResults(ui.lods.slice().sort((a, b) => a - b)); busy(false, 'Ready');
+    saveFile(`comput-sphere-responsive-${rs.map((r) => r.size).join('-')}-seed${p.seed}.svg`, Comput.responsiveSvg(rs, p));
   });
 
   let tt = 0;
@@ -960,8 +1015,7 @@ if (typeof module !== 'undefined') module.exports = Comput;
     const cv = $('mini'), ctx = cv.getContext('2d'), k = cv.width / 30;
     const paint = () => {
       ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height); ctx.setTransform(k, 0, 0, k, 0, 0);
-      const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
-      ctx.fillStyle = ink; ctx.beginPath();
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim(); ctx.beginPath();
       for (let i = 0; i < r.n; i++) if (r.shape[i] >= 0) { ctx.moveTo(r.x[i] + r.rad, r.y[i]); ctx.arc(r.x[i], r.y[i], r.rad, 0, 6.2832); }
       ctx.fill();
     };
@@ -971,7 +1025,7 @@ if (typeof module !== 'undefined') module.exports = Comput;
 
   let rz = 0;
   window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(layout, 120); });
-  syncAll(); drawLaw(); applyMode();
+  syncAll(); applyMode();
 })();
 </script>
 </body></html>
