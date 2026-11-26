@@ -87,6 +87,13 @@ input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset
 .toggle input:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px }
 
 /* light pad: drag the dot to place the light on the ball */
+.src { padding: 6px; border-radius: 999px }
+.src .seg { border: 0; padding: 0 }
+.src .seg button { padding: 10px 8px; font-size: 11px }
+.imgrow { display: flex; gap: 12px; align-items: center }
+.thumb { width: 64px; height: 64px; flex: none; border-radius: 14px; object-fit: contain; background: var(--board); outline: 1px solid var(--rule) }
+.imgbtns { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 }
+.dropping .view { outline: 2px dashed var(--ink); outline-offset: -10px }
 .light { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 16px; align-items: center }
 .pad { width: 112px; height: 112px; touch-action: none; cursor: crosshair; display: block; border-radius: 50% }
 .pad .ball { fill: none; stroke: var(--ink); stroke-width: 1 }
@@ -164,20 +171,41 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
 
   <div class="main">
     <aside class="controls" id="controls">
-      <section class="mod">
-        <div class="mod-h"><span class="lab">Size</span></div>
-        <div class="field"><input id="size" type="number" min="16" max="8192" step="1" inputmode="numeric" aria-label="Output size in pixels"><span class="unit">PX</span></div>
-        <div class="chips" id="sizeChips"></div>
-        <p class="sub">Bigger sizes get more, smaller 0s and 1s, so the texture holds at any scale.</p>
-      </section>
+      <section class="mod src"><div class="seg" id="srcSeg" role="group" aria-label="What to make"></div></section>
 
       <section class="mod">
+        <div class="mod-h"><span class="lab" id="sizeLab">Size</span></div>
+        <div class="field"><input id="size" type="number" min="16" max="8192" step="1" inputmode="numeric" aria-label="Output size in pixels"><span class="unit">PX</span></div>
+        <div class="chips" id="sizeChips"></div>
+        <p class="sub" data-src="sphere">Bigger sizes get more, smaller 0s and 1s, so the texture holds at any scale.</p>
+      </section>
+
+      <section class="mod" data-src="image">
+        <div class="mod-h"><span class="lab">Image</span><span class="lab mute" id="imgName"></span></div>
+        <div class="imgrow">
+          <img class="thumb" id="thumb" alt="Source image">
+          <div class="imgbtns">
+            <button class="btn ghost sm" id="pick">Choose image</button>
+            <button class="btn ghost sm" id="useSample">Use sample</button>
+          </div>
+          <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden>
+        </div>
+        <p class="sub">You can also drop or paste a picture. A 3D render or a cut-out PNG with a transparent background works best.</p>
+      </section>
+
+      <section class="mod" data-src="image">
+        <div class="mod-h"><span class="lab">Tone</span><span class="lab mute">Light and shadow</span></div>
+        <div class="rows" id="toneRows"></div>
+        <label class="toggle">Light marks on dark (marks follow the light)<input type="checkbox" id="invert"></label>
+      </section>
+
+      <section class="mod" data-src="sphere">
         <div class="mod-h"><span class="lab">Centre diffusion</span></div>
         <div class="seg" id="diffSeg" role="group" aria-label="Centre diffusion"></div>
         <div class="rows" id="diffRows"></div>
       </section>
 
-      <section class="mod">
+      <section class="mod" data-src="sphere">
         <div class="mod-h"><span class="lab">Light</span><span class="lab mute">Drag the dot</span></div>
         <div class="light">
           <svg class="pad" id="pad" viewBox="0 0 112 112" tabindex="0" role="slider" aria-label="Light position, use arrow keys to move"></svg>
@@ -187,8 +215,10 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
 
       <section class="mod">
         <div class="mod-h"><span class="lab">0s and 1s</span><span class="lab mute">Circles / pills</span></div>
+        <div class="rows" id="imgMarkRows" data-src="image"></div>
         <div class="rows" id="markRows"></div>
-        <div class="seg" id="dirSeg" role="group" aria-label="Pill direction"></div>
+        <div class="seg" id="dirSeg" role="group" aria-label="Pill direction" data-src="sphere"></div>
+        <div class="seg" id="imgDirSeg" role="group" aria-label="Pill direction" data-src="image"></div>
       </section>
 
       <section class="mod">
@@ -267,7 +297,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
 (() => {
   const $ = (id) => document.getElementById(id);
   const D = Comput.DEFAULTS;
-  const POS = new Set(Comput.POSITION_KEYS);
+  const POS = new Set(Comput.POSITION_KEYS), TONE = new Set(Comput.TONE_KEYS);
   const SIZES = [32, 64, 128, 256, 512, 1024, 2048, 4096];
   const KEY = 'comput.v2';
   let p = { ...D };
@@ -289,6 +319,18 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
       ['centre', 'Density left in the middle', 0, 100, 1, pct],
       ['centreReach', 'Spread', 0, 100, 1, pct],
     ],
+    toneRows: [
+      ['imgBrightness', 'Brightness', -1, 1, 0.01, f2],
+      ['imgContrast', 'Contrast', 0, 3, 0.01, f2],
+      ['imgGamma', 'Shadow weight', 0.4, 3, 0.01, f2],
+      ['imgFloor', 'Marks in the light', 0, 0.4, 0.01, (v) => `${Math.round(v * 100)}%`],
+      ['imgEdge', 'Outline', 0, 1.5, 0.01, f2],
+      ['imgCutoff', 'Clean paper', 0, 0.6, 0.01, (v) => `${Math.round(v * 100)}%`],
+    ],
+    imgMarkRows: [
+      ['markPx', 'Mark size', 0.6, 12, 0.1, (v) => `${(+v).toFixed(1)} px`],
+      ['ink', 'Density', 0.2, 2.5, 0.01, (v) => `${Math.round(v * 100)}%`],
+    ],
     lightRows: [
       ['shadowPacking', 'Shadow', 0, 12, 0.1, (v) => (+v).toFixed(1)],
       ['rimPacking', 'Rim', 0, 12, 0.1, (v) => (+v).toFixed(1)],
@@ -299,10 +341,10 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
     ],
     scaleRows: [
       ['growth', 'How fast marks grow with size', 0, 1, 0.01, f2],
-      ['base', 'Base size', 32, 512, 1, (v) => `${Math.round(v)} px`],
-      ['baseMarks', 'Marks at base size', 500, 12000, 50, int],
-      ['grainBase', 'Mark size at base', 30, 160, 1, (v) => `1/${Math.round(v)}`],
-      ['minGrain', 'Smallest mark', 0.3, 3, 0.05, (v) => `${(+v).toFixed(2)} px`],
+      ['base', 'Base size', 32, 512, 1, (v) => `${Math.round(v)} px`, 'sphere'],
+      ['baseMarks', 'Marks at base size', 500, 12000, 50, int, 'sphere'],
+      ['grainBase', 'Mark size at base', 30, 160, 1, (v) => `1/${Math.round(v)}`, 'sphere'],
+      ['minGrain', 'Smallest mark', 0.3, 3, 0.05, (v) => `${(+v).toFixed(2)} px`, 'sphere'],
       ['maxMarks', 'Most marks', 10000, 400000, 5000, int],
     ],
     fineRows: [
@@ -316,8 +358,9 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   const inputs = {};
   for (const [host, rows] of Object.entries(ROWS)) {
     const el = $(host);
-    for (const [k, label, min, max, step, f] of rows) {
+    for (const [k, label, min, max, step, f, src] of rows) {
       const row = document.createElement('div'); row.className = 'row';
+      if (src) row.dataset.src = src;
       const id = 'r_' + k;
       row.innerHTML = `<label for="${id}">${label}</label><output class="num" for="${id}"></output><input type="range" id="${id}" min="${min}" max="${max}" step="${step}">`;
       el.appendChild(row);
@@ -337,6 +380,8 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   }
   const syncs = [
     seg('diffSeg', [['off', 'Off'], ['cross', 'Cross'], ['hamburger', 'Hamburger']], () => p.centreMode, (v) => { p.centreMode = v; changed('centreMode'); }),
+    seg('srcSeg', [['sphere', 'Logo'], ['image', 'Illustration']], () => p.source, (v) => { p.source = v; changed('source'); }),
+    seg('imgDirSeg', [['flow', 'Along'], ['across', 'Across'], ['radial', 'Radial'], ['vertical', 'Upright']], () => p.imgDirection, (v) => { p.imgDirection = v; changed('imgDirection'); }),
     seg('dirSeg', [['radial', 'Radial'], ['follow', 'Follow'], ['vertical', 'Upright']], () => p.direction, (v) => { p.direction = v; changed('direction'); }),
     seg('fromSeg', [['centre', 'Centre'], ['light', 'Light spot']], () => p.radialFrom, (v) => { p.radialFrom = v; changed('radialFrom'); }),
     seg('modeSeg', null, () => ui.mode, (v) => { ui.mode = v; save(); applyMode(); }),
@@ -366,6 +411,66 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
     if (!d) return; e.preventDefault(); setLight(p.lightX + d[0], p.lightY + d[1], false);
   });
 
+  // ---------- source image ----------
+  // Pictures are read into a grey-scale raster (max 720 px on the long side) plus transparency.
+  const RASTER = 720, IMG_KEY = 'comput.image';
+  let IMG = null;
+  function rasterize(el, name) {
+    const nw = el.naturalWidth || 720, nh = el.naturalHeight || 720, sc = Math.min(1, RASTER / Math.max(nw, nh));
+    const w = Math.max(1, Math.round(nw * sc)), h = Math.max(1, Math.round(nh * sc));
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d'); ctx.drawImage(el, 0, 0, w, h);
+    const d = ctx.getImageData(0, 0, w, h).data, lum = new Float32Array(w * h), alpha = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) { lum[i] = (0.2126 * d[4 * i] + 0.7152 * d[4 * i + 1] + 0.0722 * d[4 * i + 2]) / 255; alpha[i] = d[4 * i + 3] / 255; }
+    return { id: name + ':' + w + 'x' + h + ':' + Date.now(), name, w, h, lum, alpha, url: cv.toDataURL('image/png') };
+  }
+  function sampleImg() {
+    const im = Comput.sampleImage();
+    const cv = document.createElement('canvas'); cv.width = im.w; cv.height = im.h;
+    const ctx = cv.getContext('2d'), id = ctx.createImageData(im.w, im.h);
+    for (let i = 0; i < im.w * im.h; i++) { const v = Math.round(im.lum[i] * 255); id.data.set([v, v, v, Math.round(im.alpha[i] * 255)], 4 * i); }
+    ctx.putImageData(id, 0, 0); im.url = cv.toDataURL('image/png');
+    return im;
+  }
+  function setImage(im, persist) {
+    IMG = im; $('thumb').src = im.url; $('imgName').textContent = im.name.length > 22 ? im.name.slice(0, 20) + '…' : im.name;
+    try { if (persist && im.url.length < 2.5e6) localStorage.setItem(IMG_KEY, JSON.stringify({ name: im.name, url: im.url })); else if (!persist) localStorage.removeItem(IMG_KEY); } catch (e) {}
+    if (p.source === 'image') changed('image');
+  }
+  async function loadFile(file) {
+    if (!file || !/^image\//.test(file.type)) return toast('Choose a PNG, JPG, WebP or SVG image');
+    const url = URL.createObjectURL(file);
+    try {
+      const el = new Image(); el.src = url; await el.decode();
+      setImage(rasterize(el, file.name), true);
+      if (p.source !== 'image') { p.source = 'image'; changed('source'); }
+      toast(`Loaded ${file.name}`);
+    } catch (e) { toast('Could not read that image. Try a PNG, JPG or WebP.'); }
+    finally { URL.revokeObjectURL(url); }
+  }
+  async function restoreImage() {
+    try {
+      const s = JSON.parse(localStorage.getItem(IMG_KEY) || 'null');
+      if (s && s.url) { const el = new Image(); el.src = s.url; await el.decode(); const im = rasterize(el, s.name); im.id = 'saved:' + s.name; return im; }
+    } catch (e) {}
+    return null;
+  }
+  $('pick').addEventListener('click', () => $('file').click());
+  $('file').addEventListener('change', () => { loadFile($('file').files[0]); $('file').value = ''; });
+  $('useSample').addEventListener('click', () => { setImage(sampleImg(), false); toast('Using the sample'); });
+  $('invert').addEventListener('change', () => {
+    p.imgInvert = $('invert').checked;
+    // a sensible pairing: light marks on black, dark marks on paper
+    if (p.imgInvert && p.color === D.color) { p.color = '#ffffff'; p.background = lastBg = '#0a0a0a'; }
+    else if (!p.imgInvert && p.color === '#ffffff' && p.background === '#0a0a0a') { p.color = D.color; p.background = 'none'; }
+    changed('imgInvert');
+  });
+  const app = document.querySelector('.app');
+  document.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); app.classList.add('dropping'); } });
+  document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) app.classList.remove('dropping'); });
+  document.addEventListener('drop', (e) => { e.preventDefault(); app.classList.remove('dropping'); const f = e.dataTransfer?.files?.[0]; if (f) loadFile(f); });
+  document.addEventListener('paste', (e) => { const f = [...(e.clipboardData?.files || [])].find((x) => /^image\//.test(x.type)); if (f) { e.preventDefault(); loadFile(f); } });
+
   // ---------- size, levels, colour, misc ----------
   const lbl = (s) => (s >= 1024 ? s / 1024 + 'K' : s);
   $('sizeChips').innerHTML = SIZES.map((s) => `<button class="chip" data-s="${s}">${lbl(s)}</button>`).join('');
@@ -391,7 +496,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   $('clustering').addEventListener('change', () => { p.clustering = $('clustering').checked; changed('clustering'); });
   $('seed').addEventListener('change', () => { p.seed = Math.max(0, Math.round(+$('seed').value || 0)); changed('seed'); });
   $('shuffle').addEventListener('click', () => { p.seed = Math.floor(Math.random() * 9999); changed('seed'); });
-  $('reset').addEventListener('click', () => { p = { ...D, size: p.size }; changed('all'); toast('Settings reset'); });
+  $('reset').addEventListener('click', () => { p = { ...D, size: p.size, source: p.source }; changed('all'); toast('Settings reset'); });
   $('theme').addEventListener('click', () => {
     const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
     r.dataset.theme = dark ? 'light' : 'dark';
@@ -409,9 +514,13 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
     $('bg').value = bgv; $('bgPick').value = full(bgv); $('transparent').checked = p.background === 'none';
     $('bg').disabled = $('bgPick').disabled = p.background === 'none';
     $('clustering').checked = p.clustering; $('seed').value = p.seed;
+    document.querySelectorAll('[data-src]').forEach((el) => { el.hidden = el.dataset.src !== p.source; });
+    $('sizeLab').textContent = p.source === 'image' ? 'Width' : 'Size';
+    $('invert').checked = !!p.imgInvert;
     $('diffRows').hidden = p.centreMode === 'off';
-    inputs.foreshorten.row.hidden = p.direction !== 'radial';
-    $('fromSeg').hidden = $('fromSeg').previousElementSibling.hidden = p.direction !== 'radial';
+    const radialLogo = p.source === 'sphere' && p.direction === 'radial';
+    inputs.foreshorten.row.hidden = !radialLogo;
+    $('fromSeg').hidden = $('fromSeg').previousElementSibling.hidden = !radialLogo;
     drawPad(); syncs.forEach((s) => s());
   }
 
@@ -424,7 +533,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   function changed(k, live = false) {
     save(); if (k !== 'lightX') syncAll();
     if (k === 'color' || k === 'background') { if (single) draw(single); if (rspResults.length) composeRsp(); return; }
-    const slow = POS.has(k) || k === 'all' || k === 'size';
+    const slow = POS.has(k) || TONE.has(k) || ['all', 'size', 'source', 'image', 'markPx', 'ink'].includes(k);
     if (live && slow) { finalDue = true; schedule(true, 30); }
     else schedule(false, live ? 0 : 40);
   }
@@ -445,7 +554,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
       for (let i = 0; i < sizes.length; i++) {
         const label = draft ? 'Preview' : ui.mode === 'single' ? 'Computing' : `Level ${i + 1}/${sizes.length}`;
         const r = await Comput.generate(p, sizes[i], {
-          cache, draft, cancelled,
+          cache, draft, cancelled, image: IMG,
           onProgress: (f) => { if (performance.now() - t0 > 120) busy(true, `${label} · ${Math.round(((i + f) / sizes.length) * 100)}%`, (i + f) / sizes.length); },
         });
         if (cancelled()) return;
@@ -475,19 +584,21 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   }
 
   // ---------- drawing ----------
-  function viewScale(size) {
+  function viewScale(W, H) {
     if (ui.view === 'one') return 1;
     const v = $('view'), w = v.clientWidth - 44, h = v.clientHeight - 60;
-    return Math.max(0.02, Math.min(1, Math.min(w, h > 80 ? h : w) / size));
+    return Math.max(0.02, Math.min(1, w / W, (h > 80 ? h : w * 1.5) / H));
   }
   function draw(r) {
-    const cv = $('cv'), vs = viewScale(r.size), css = r.size * vs;
-    const dpr = Math.min(window.devicePixelRatio || 1, 6000 / css), px = Math.max(1, Math.round(css * dpr));
-    if (cv.width !== px) { cv.width = px; cv.height = px; }
-    cv.style.width = css + 'px'; cv.style.height = css + 'px';
-    const ctx = cv.getContext('2d'), k = px / r.size;
-    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, px, px);
-    if (p.background !== 'none') { ctx.fillStyle = p.background; ctx.fillRect(0, 0, px, px); }
+    const W = r.width, H = r.height;
+    const cv = $('cv'), vs = viewScale(W, H), cw = W * vs, ch = H * vs;
+    const dpr = Math.min(window.devicePixelRatio || 1, 6000 / Math.max(cw, ch));
+    const pw = Math.max(1, Math.round(cw * dpr)), ph = Math.max(1, Math.round(ch * dpr));
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+    cv.style.width = cw + 'px'; cv.style.height = ch + 'px';
+    const ctx = cv.getContext('2d'), k = pw / W;
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, pw, ph);
+    if (p.background !== 'none') { ctx.fillStyle = p.background; ctx.fillRect(0, 0, pw, ph); }
     ctx.setTransform(k, 0, 0, k, 0, 0);
     const { x, y, ux, uy, half, shape, n, rad } = r;
     ctx.fillStyle = p.color; ctx.beginPath();
@@ -496,7 +607,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
     ctx.strokeStyle = p.color; ctx.lineWidth = r.lw; ctx.lineCap = 'round'; ctx.beginPath();
     for (let i = 0; i < n; i++) if (shape[i] === 1) { const hx = ux[i] * half[i], hy = uy[i] * half[i]; ctx.moveTo(x[i] - hx, y[i] - hy); ctx.lineTo(x[i] + hx, y[i] + hy); }
     ctx.stroke();
-    $('boardTag').textContent = `${r.size} × ${r.size} PX · VIEW ${Math.round(vs * 100)}%`;
+    $('boardTag').textContent = `${W} × ${H} PX · VIEW ${Math.round(vs * 100)}%`;
   }
 
   // responsive width slider: log scale 32 … 3000
@@ -515,7 +626,8 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
     $('view').classList.toggle('one', ui.view === 'one');
     if (ui.mode === 'single') { if (single) draw(single); return; }
     const w = ui.rspW; $('rspW').value = fromW(w); $('rspWOut').textContent = `${w} PX`;
-    const img = $('rspImg'); img.style.width = w + 'px'; img.style.height = w + 'px';
+    const img = $('rspImg'), r0 = rspResults[0];
+    img.style.width = w + 'px'; img.style.height = (r0 ? Math.round((w * r0.height) / r0.width) : w) + 'px';
     const a = rspResults.length ? activeLevel(w) : null;
     $('boardTag').textContent = a ? `DRAWN AT ${w} PX · DETAIL LEVEL ${a.size} PX` : 'BUILDING…';
   }
@@ -528,7 +640,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
     if (ui.mode === 'single') {
       if (!single) { el.innerHTML = ''; return; }
       const r = single;
-      el.innerHTML = cell('Size', `${r.size} px`) + cell('0s', fmtN(r.circles)) + cell('1s', fmtN(r.lines)) +
+      el.innerHTML = cell('Size', r.width === r.height ? `${r.width} px` : `${r.width} × ${r.height}`) + cell('0s', fmtN(r.circles)) + cell('1s', fmtN(r.lines)) +
         cell('Mark size', `${r.grain.toFixed(2)} px`) + cell('Seed', String(p.seed).padStart(3, '0'));
     } else {
       if (!rspResults.length) { el.innerHTML = ''; return; }
@@ -563,18 +675,18 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   // exports always use full detail, never a draft
   async function fullResults(sizes) {
     const out = [];
-    for (const s of sizes) out.push(await Comput.generate(p, s, { cache }));
+    for (const s of sizes) out.push(await Comput.generate(p, s, { cache, image: IMG }));
     return out;
   }
   $('export').addEventListener('click', async () => {
     busy(true, 'Preparing SVG');
     const [r] = await fullResults([p.size]); busy(false, 'Ready');
-    saveFile(`comput-sphere-${r.size}px-seed${p.seed}${ui.fmt === 'compact' ? '-web' : ''}.svg`, Comput.svg(r, p, ui.fmt));
+    saveFile(`comput-${r.kind === 'image' ? 'illustration' : 'sphere'}-${r.width}x${r.height}-seed${p.seed}${ui.fmt === 'compact' ? '-web' : ''}.svg`, Comput.svg(r, p, ui.fmt));
   });
   $('exportRsp').addEventListener('click', async () => {
     busy(true, 'Preparing SVG');
     const rs = await fullResults(ui.lods.slice().sort((a, b) => a - b)); busy(false, 'Ready');
-    saveFile(`comput-sphere-responsive-${rs.map((r) => r.size).join('-')}-seed${p.seed}.svg`, Comput.responsiveSvg(rs, p));
+    saveFile(`comput-${p.source === 'image' ? 'illustration' : 'sphere'}-responsive-${rs.map((r) => r.size).join('-')}-seed${p.seed}.svg`, Comput.responsiveSvg(rs, p));
   });
 
   let tt = 0;
@@ -582,6 +694,10 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
 
   let rz = 0;
   window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(layout, 120); });
-  syncAll(); applyMode();
+  (async () => {
+    setImageQuiet(await restoreImage() || sampleImg());
+    syncAll(); applyMode();
+  })();
+  function setImageQuiet(im) { IMG = im; $('thumb').src = im.url; $('imgName').textContent = im.name.length > 22 ? im.name.slice(0, 20) + '…' : im.name; }
 })();
 </script>

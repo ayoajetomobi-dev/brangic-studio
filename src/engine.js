@@ -29,6 +29,18 @@ const Comput = (() => {
     gap: 9,              // % of grain (0.5px at the original 5.5px grain)
     // colour
     color: '#111111', background: 'none', seed: 3,
+    // ---------- illustration (image source) ----------
+    source: 'sphere',    // 'sphere' = the logo, 'image' = any picture or render
+    markPx: 2.5,         // mark size in px at the chosen output width
+    ink: 1,              // overall density multiplier
+    imgBrightness: 0,    // -1 … 1
+    imgContrast: 1.2,    // 0 … 3
+    imgCutoff: 0.08,     // tones lighter than this get no marks at all (clean paper)
+    imgGamma: 1,         // >1 pushes marks into the shadows, <1 spreads them into the mid-tones
+    imgInvert: false,    // false: dark areas get marks (ink on paper); true: light areas get marks (light on black)
+    imgFloor: 0.08,      // sparse marks even in the lightest parts of a shape, so the form still reads
+    imgEdge: 0.6,        // extra packing along outlines, like the rim of the logo
+    imgDirection: 'flow',// 'flow' along shapes, 'across' through shapes, 'radial', 'vertical'
   };
   const RADIUS_RATIO = 0.44; // 220 / 500 in the original
 
@@ -81,16 +93,16 @@ const Comput = (() => {
   }
 
   // CSR spatial hash
-  function buildGrid(X, Y, n, min, cell, dim) {
-    const start = new Int32Array(dim * dim + 1), cellOf = new Int32Array(n);
+  function buildGrid(X, Y, n, min, cell, dim, minY = min, dimY = dim) {
+    const cells = dim * dimY, start = new Int32Array(cells + 1), cellOf = new Int32Array(n);
     for (let i = 0; i < n; i++) {
-      let gx = ((X[i] - min) / cell) | 0, gy = ((Y[i] - min) / cell) | 0;
+      let gx = ((X[i] - min) / cell) | 0, gy = ((Y[i] - minY) / cell) | 0;
       gx = gx < 0 ? 0 : gx >= dim ? dim - 1 : gx;
-      gy = gy < 0 ? 0 : gy >= dim ? dim - 1 : gy;
+      gy = gy < 0 ? 0 : gy >= dimY ? dimY - 1 : gy;
       const c = gy * dim + gx; cellOf[i] = c; start[c + 1]++;
     }
-    for (let c = 0; c < dim * dim; c++) start[c + 1] += start[c];
-    const fill = start.slice(0, dim * dim), items = new Int32Array(n);
+    for (let c = 0; c < cells; c++) start[c + 1] += start[c];
+    const fill = start.slice(0, cells), items = new Int32Array(n);
     for (let i = 0; i < n; i++) items[fill[cellOf[i]]++] = i;
     return { start, items };
   }
@@ -99,6 +111,41 @@ const Comput = (() => {
   const tick = typeof MessageChannel !== 'undefined'
     ? (() => { const ch = new MessageChannel(), q = []; ch.port1.onmessage = () => q.shift()(); if (ch.port1.unref) ch.port1.unref(); return () => new Promise((res) => { q.push(res); ch.port2.postMessage(0); }); })()
     : () => new Promise((res) => setTimeout(res, 0));
+
+  // Lloyd (k-means) relaxation of N sites over m density-distributed samples.
+  // Grid covers [minX, minX + GX*h] x [minY, minY + GY*h].
+  async function lloyd(X, Y, N, SX, SY, m, minX, minY, h, GX, GY, iters, maybeYield) {
+    const AX = new Float64Array(N), AY = new Float64Array(N), AC = new Int32Array(N);
+    const GM = Math.max(GX, GY);
+    for (let it = 0; it < iters; it++) {
+      const { start, items } = buildGrid(X, Y, N, minX, h, GX, minY, GY);
+      AX.fill(0); AY.fill(0); AC.fill(0);
+      for (let q = 0; q < m; q++) {
+        const x = SX[q], y = SY[q];
+        const cx = ((x - minX) / h) | 0, cy = ((y - minY) / h) | 0;
+        let best = Infinity, bi = -1;
+        for (let r = 0; r < GM; r++) {
+          if (bi >= 0 && r > 1) { const lim = (r - 1) * h; if (lim * lim >= best) break; }
+          const x0 = cx - r, x1 = cx + r, y0 = cy - r, y1 = cy + r;
+          for (let gy = y0; gy <= y1; gy++) {
+            if (gy < 0 || gy >= GY) continue;
+            const step = gy === y0 || gy === y1 ? 1 : x1 - x0 || 1;
+            for (let gx = x0; gx <= x1; gx += step) {
+              if (gx < 0 || gx >= GX) continue;
+              const c = gy * GX + gx;
+              for (let k = start[c], e = start[c + 1]; k < e; k++) {
+                const s = items[k], dx = X[s] - x, dy = Y[s] - y, d = dx * dx + dy * dy;
+                if (d < best) { best = d; bi = s; }
+              }
+            }
+          }
+        }
+        if (bi >= 0) { AX[bi] += x; AY[bi] += y; AC[bi]++; }
+        if ((q & 0xffff) === 0) await maybeYield(0.04 + 0.96 * ((it + q / m) / iters));
+      }
+      for (let i = 0; i < N; i++) if (AC[i]) { X[i] = AX[i] / AC[i]; Y[i] = AY[i] / AC[i]; }
+    }
+  }
 
   function yielder(opt, from, span) {
     const onProgress = opt.onProgress || (() => {}), cancelled = opt.cancelled || (() => false);
@@ -198,36 +245,8 @@ const Comput = (() => {
     }
 
     const iters = opt.draft ? Math.min(3, Math.round(4 + 40 * (1 - p.organic))) : Math.round(4 + 40 * (1 - p.organic));
-    const h = Math.sqrt((2 * Math.PI) / N), GMIN = -1.02, GS = Math.ceil(2.04 / h);
-    const AX = new Float64Array(N), AY = new Float64Array(N), AC = new Int32Array(N);
-    for (let it = 0; it < iters; it++) {
-      const { start, items } = buildGrid(X, Y, N, GMIN, h, GS);
-      AX.fill(0); AY.fill(0); AC.fill(0);
-      for (let q = 0; q < m; q++) {
-        const x = SX[q], y = SY[q];
-        const cx = ((x - GMIN) / h) | 0, cy = ((y - GMIN) / h) | 0;
-        let best = Infinity, bi = -1;
-        for (let r = 0; r < GS; r++) {
-          if (bi >= 0 && r > 1) { const lim = (r - 1) * h; if (lim * lim >= best) break; }
-          const x0 = cx - r, x1 = cx + r, y0 = cy - r, y1 = cy + r;
-          for (let gy = y0; gy <= y1; gy++) {
-            if (gy < 0 || gy >= GS) continue;
-            const step = gy === y0 || gy === y1 ? 1 : x1 - x0 || 1;
-            for (let gx = x0; gx <= x1; gx += step) {
-              if (gx < 0 || gx >= GS) continue;
-              const c = gy * GS + gx;
-              for (let k = start[c], e = start[c + 1]; k < e; k++) {
-                const s = items[k], dx = X[s] - x, dy = Y[s] - y, d = dx * dx + dy * dy;
-                if (d < best) { best = d; bi = s; }
-              }
-            }
-          }
-        }
-        AX[bi] += x; AY[bi] += y; AC[bi]++;
-        if ((q & 0xffff) === 0) await maybeYield(0.04 + 0.96 * ((it + q / m) / iters));
-      }
-      for (let i = 0; i < N; i++) if (AC[i]) { X[i] = AX[i] / AC[i]; Y[i] = AY[i] / AC[i]; }
-    }
+    const h = Math.sqrt((2 * Math.PI) / N), GS = Math.ceil(2.04 / h);
+    await lloyd(X, Y, N, SX, SY, m, -1.02, -1.02, h, GS, GS, iters, maybeYield);
 
     // loosen the grid, keep everything on the ball
     const sig = p.organic * 0.35 * Math.sqrt(Math.PI / N), LIM = 1 - 1 / 300;
@@ -287,32 +306,41 @@ const Comput = (() => {
       if (HALF[i] > halfMax) halfMax = HALF[i];
     }
 
-    // ---------- 4. circle or line, never letting marks touch ----------
+    const out = await assign({ N, PX, PY, UX, UY, HALF, halfMax, D, lw, rad, gap, W: S, H: S }, p, R, maybeYield);
+    return {
+      kind: 'sphere', size: S, width: S, height: S, plan: pl, grain: D, rad, lw, n: N, x: PX, y: PY, ux: UX, uy: UY, half: HALF,
+      ...out, draft: pos.draft, ms: Date.now() - t0 + (pos.fromCache ? 0 : pos.ms),
+    };
+  }
+
+  // ---------- circle (0) or pill (1), never letting marks touch ----------
+  async function assign(g, p, R, maybeYield) {
+    const { N, PX, PY, UX, UY, HALF, halfMax, lw, rad, gap, W, H } = g;
     const wantLine = new Uint8Array(N);
     for (let i = 0; i < N; i++) wantLine[i] = R() < p.lineShare ? 1 : 0;
     const perm = (arr) => { for (let i = arr.length - 1; i > 0; i--) { const j = (R() * (i + 1)) | 0; const t = arr[i]; arr[i] = arr[j]; arr[j] = t; } return arr; };
     const ls = [], cs2 = [];
     for (let i = 0; i < N; i++) (wantLine[i] ? ls : cs2).push(i);
-    const order = perm(ls).concat(perm(cs2));   // lines claim space first
+    const order = perm(ls).concat(perm(cs2));   // pills claim space first
 
     const reach = halfMax + Math.max(rad, lw / 2);
-    const cell = 2 * reach + gap + 1e-6, gdim = Math.max(1, Math.ceil(S / cell) + 1);
-    const { start, items } = buildGrid(PX, PY, N, 0, cell, gdim);
-    const shape = new Int8Array(N).fill(-2);      // -2 pending, 0 circle, 1 line, -1 dropped
+    const cell = 2 * reach + gap + 1e-6, gdx = Math.max(1, Math.ceil(W / cell) + 1), gdy = Math.max(1, Math.ceil(H / cell) + 1);
+    const { start, items } = buildGrid(PX, PY, N, 0, cell, gdx, 0, gdy);
+    const shape = new Int8Array(N).fill(-2);      // -2 pending, 0 circle, 1 pill, -1 dropped
     for (let oi = 0; oi < N; oi++) {
       const i = order[oi];
-      const gx = Math.min(gdim - 1, Math.max(0, (PX[i] / cell) | 0));
-      const gy = Math.min(gdim - 1, Math.max(0, (PY[i] / cell) | 0));
+      const gx = Math.min(gdx - 1, Math.max(0, (PX[i] / cell) | 0));
+      const gy = Math.min(gdy - 1, Math.max(0, (PY[i] / cell) | 0));
       let placed = false;
       for (let tryLine = wantLine[i]; tryLine >= 0 && !placed; tryLine--) {
         const hi = tryLine ? HALF[i] : 0, ri = tryLine ? lw / 2 : rad;
         const ax = PX[i] - UX[i] * hi, ay = PY[i] - UY[i] * hi, bx = PX[i] + UX[i] * hi, by = PY[i] + UY[i] * hi;
         let clash = false;
         for (let yy = gy - 1; yy <= gy + 1 && !clash; yy++) {
-          if (yy < 0 || yy >= gdim) continue;
+          if (yy < 0 || yy >= gdy) continue;
           for (let xx = gx - 1; xx <= gx + 1 && !clash; xx++) {
-            if (xx < 0 || xx >= gdim) continue;
-            const c = yy * gdim + xx;
+            if (xx < 0 || xx >= gdx) continue;
+            const c = yy * gdx + xx;
             for (let k = start[c], e = start[c + 1]; k < e; k++) {
               const j = items[k], sj = shape[j];
               if (sj < 0) continue;
@@ -332,26 +360,232 @@ const Comput = (() => {
       if (!placed) shape[i] = p.clustering ? 0 : -1;
       if ((oi & 0x3fff) === 0) await maybeYield(oi / N);
     }
-
     let circles = 0, lines = 0, dropped = 0;
     for (let i = 0; i < N; i++) shape[i] === 0 ? circles++ : shape[i] === 1 ? lines++ : dropped++;
+    return { shape, circles, lines, dropped };
+  }
+
+  // =================== illustration from an image ===================
+  // img = { id, w, h, lum: Float32Array (0 black … 1 white), alpha: Float32Array (0 … 1) }
+
+  const TONE_KEYS = ['imgBrightness', 'imgContrast', 'imgCutoff', 'imgGamma', 'imgInvert', 'imgFloor', 'imgEdge'];
+  const toneKey = (p) => TONE_KEYS.map((k) => p[k]).join('|');
+
+  // how much ink each image cell wants, 0 … 1
+  function coverage(img, p) {
+    const key = toneKey(p);
+    if (img._cov && img._covKey === key) return img._cov;
+    const n = img.w * img.h, C = new Float32Array(n), w = img.w, h = img.h;
+    const b = p.imgBrightness, c = p.imgContrast, cut = Math.min(0.95, p.imgCutoff), g = p.imgGamma, fl = p.imgFloor;
+    if (img.hasAlpha === undefined) { img.hasAlpha = false; for (let i = 0; i < n; i++) if (img.alpha[i] < 0.99) { img.hasAlpha = true; break; } }
+    for (let i = 0; i < n; i++) {
+      let t = p.imgInvert ? img.lum[i] : 1 - img.lum[i];       // tone that should carry marks
+      t = (t - 0.5) * c + 0.5 - b * 0.5;
+      t = t <= cut ? 0 : (t - cut) / (1 - cut);
+      if (t > 1) t = 1;
+      // the floor keeps light parts of a shape sparsely marked; for pictures without
+      // transparency it only applies where there is some tone, so white paper stays clean
+      const v = t > 0 || img.hasAlpha ? fl + (1 - fl) * Math.pow(t, g) : 0;
+      C[i] = v * img.alpha[i];
+    }
+    if (p.imgEdge > 0) {
+      // outline map: silhouette (transparency) edges, or luminance edges for opaque pictures
+      const src = img.hasAlpha ? img.alpha : img.lum, E = new Float32Array(n);
+      let max = 0;
+      for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+        const i = y * w + x;
+        const gx = src[i + 1 - w] + 2 * src[i + 1] + src[i + 1 + w] - src[i - 1 - w] - 2 * src[i - 1] - src[i - 1 + w];
+        const gy = src[i - 1 + w] + 2 * src[i + w] + src[i + 1 + w] - src[i - 1 - w] - 2 * src[i - w] - src[i + 1 - w];
+        E[i] = Math.hypot(gx, gy); if (E[i] > max) max = E[i];
+      }
+      const r = Math.max(1, Math.round(0.006 * Math.max(w, h)));
+      boxBlur(E, w, h, r); boxBlur(E, w, h, r);
+      let m2 = 0; for (let i = 0; i < n; i++) if (E[i] > m2) m2 = E[i];
+      if (m2 > 0) for (let i = 0; i < n; i++) {
+        const e = Math.min(1, (E[i] / m2) * 1.6) * p.imgEdge * img.alpha[i];
+        C[i] = Math.min(1, C[i] + e * (1 - C[i] * 0.5));
+      }
+    }
+    img._cov = C; img._covKey = key; img._flow = null;
+    return C;
+  }
+
+  // Direction field from the picture itself: smoothed structure tensor of the coverage map.
+  // Gives the axis along contours (flow) plus how clear that axis is (coherence 0 … 1).
+  function flowField(img, p) {
+    const C = coverage(img, p);
+    if (img._flow) return img._flow;
+    const w = img.w, h = img.h, n = w * h;
+    const xx = new Float32Array(n), yy = new Float32Array(n), xy = new Float32Array(n);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const at = (i, j) => C[Math.min(h - 1, Math.max(0, j)) * w + Math.min(w - 1, Math.max(0, i))];
+      const gx = at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1) - at(x - 1, y - 1) - 2 * at(x - 1, y) - at(x - 1, y + 1);
+      const gy = at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1) - at(x - 1, y - 1) - 2 * at(x, y - 1) - at(x + 1, y - 1);
+      const i = y * w + x; xx[i] = gx * gx; yy[i] = gy * gy; xy[i] = gx * gy;
+    }
+    const r = Math.max(2, Math.round(0.025 * Math.max(w, h)));
+    for (const A of [xx, yy, xy]) { boxBlur(A, w, h, r); boxBlur(A, w, h, r); }
+    const fx = new Float32Array(n), fy = new Float32Array(n), coh = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = xx[i], b = yy[i], c = xy[i];
+      const d = Math.sqrt((a - b) * (a - b) + 4 * c * c);
+      const th = 0.5 * Math.atan2(2 * c, a - b);          // gradient axis
+      fx[i] = -Math.sin(th); fy[i] = Math.cos(th);         // along the contour
+      coh[i] = a + b > 1e-9 ? d / (a + b) : 0;
+    }
+    img._flow = { fx, fy, coh };
+    return img._flow;
+  }
+  function boxBlur(A, w, h, r) {
+    const T = new Float32Array(A.length);
+    for (let y = 0; y < h; y++) {
+      let acc = 0; const row = y * w;
+      for (let x = -r; x <= r; x++) acc += A[row + Math.min(w - 1, Math.max(0, x))];
+      for (let x = 0; x < w; x++) {
+        T[row + x] = acc / (2 * r + 1);
+        acc += A[row + Math.min(w - 1, x + r + 1)] - A[row + Math.max(0, x - r)];
+      }
+    }
+    for (let x = 0; x < w; x++) {
+      let acc = 0;
+      for (let y = -r; y <= r; y++) acc += T[Math.min(h - 1, Math.max(0, y)) * w + x];
+      for (let y = 0; y < h; y++) {
+        A[y * w + x] = acc / (2 * r + 1);
+        acc += T[Math.min(h - 1, y + r + 1) * w + x] - T[Math.max(0, y - r) * w + x];
+      }
+    }
+  }
+
+  // mark size at an output width; at other widths (responsive levels) it follows the growth rule
+  const markAt = (p, size) => p.markPx * Math.pow(size / p.size, p.growth);
+
+  function imagePlan(p, img, size) {
+    const W = size, H = Math.max(1, Math.round((size * img.h) / img.w));
+    const C = coverage(img, p);
+    let sum = 0, inkCells = 0;
+    for (let i = 0; i < C.length; i++) { sum += C[i]; if (C[i] > 0) inkCells++; }
+    const cellArea = (W / img.w) * (H / img.h);
+    let D = Math.max(0.3, markAt(p, size));
+    const Aeff = Math.PI * (D / 2) * (D / 2) * 1.6;          // average 0/1 footprint
+    let n = (p.ink * 0.72 * sum * cellArea) / Aeff;           // full tone ≈ 72% ink, with clumping in the darkest parts
+    if (n > p.maxMarks) { D *= Math.sqrt(n / p.maxMarks); n = p.maxMarks; }
+    return { W, H, grain: D, n: Math.round(n), sum, inkArea: inkCells * cellArea, cellArea };
+  }
+
+  function imageKey(p, img, size, draft) {
+    const pl = imagePlan(p, img, size);
+    return ['img', img.id, size, pl.grain.toFixed(4), pl.n, toneKey(p), p.organic, p.seed, draft ? 'd' : 'f'].join('|');
+  }
+
+  async function imagePositions(p, img, size, opt = {}) {
+    const maybeYield = yielder(opt, 0, opt.draft ? 1 : 0.88);
+    const t0 = Date.now(), R = rng(p.seed);
+    const pl = imagePlan(p, img, size), N = pl.n, { W, H } = pl;
+    const key = imageKey(p, img, size, opt.draft);
+    if (N < 1) return { key, kind: 'image', plan: pl, n: 0, X: new Float64Array(0), Y: new Float64Array(0), draft: !!opt.draft, ms: 0 };
+    const C = coverage(img, p), cw = W / img.w, ch = H / img.h;
+    const M = Math.round(Math.min(3.2e6, opt.draft ? Math.max(20000, N * 6) : Math.max(40000, N * 14)));
+    const SX = new Float32Array(M + img.w * img.h), SY = new Float32Array(M + img.w * img.h);
+    let m = 0;
+    for (let j = 0; j < img.h; j++) for (let i = 0; i < img.w; i++) {
+      const c = C[j * img.w + i]; if (!c) continue;
+      const k = Math.floor((M * c) / pl.sum + R());
+      for (let q = 0; q < k; q++) { SX[m] = (i + R()) * cw; SY[m] = (j + R()) * ch; m++; }
+    }
+    await maybeYield(0.02);
+    const X = new Float64Array(N), Y = new Float64Array(N);
+    for (let i = 0; i < N; i++) { const k = (R() * m) | 0; X[i] = SX[k]; Y[i] = SY[k]; }
+    const iters = opt.draft ? Math.min(3, Math.round(4 + 40 * (1 - p.organic))) : Math.round(4 + 40 * (1 - p.organic));
+    const h = Math.max(0.5, Math.sqrt((2 * pl.inkArea) / N));
+    await lloyd(X, Y, N, SX, SY, m, 0, 0, h, Math.ceil(W / h) + 1, Math.ceil(H / h) + 1, iters, maybeYield);
+    const sig = p.organic * 0.35 * Math.sqrt(pl.inkArea / N);
+    for (let i = 0; i < N; i++) {
+      X[i] = Math.min(W, Math.max(0, X[i] + R.normal() * sig));
+      Y[i] = Math.min(H, Math.max(0, Y[i] + R.normal() * sig));
+    }
+    return { key, kind: 'image', plan: pl, n: N, X, Y, draft: !!opt.draft, ms: Date.now() - t0 };
+  }
+
+  async function imagePlace(pos, p, img, opt = {}) {
+    const maybeYield = yielder(opt, pos.fromCache || pos.draft ? 0 : 0.88, pos.fromCache || pos.draft ? 1 : 0.12);
+    const t0 = Date.now(), R = rng(p.seed + 7919);
+    const { plan: pl, n: N, X, Y } = pos, { W, H } = pl, D = pl.grain, rad = D / 2;
+    const lw = D * p.lineWeight, gap = (p.gap / 100) * D;
+    const UX = new Float64Array(N), UY = new Float64Array(N), HALF = new Float64Array(N);
+    const F = p.imgDirection === 'flow' || p.imgDirection === 'across' ? flowField(img, p) : null;
+    const half = Math.max((D * p.lineLength) / 2 - lw / 2, 0);
+    for (let i = 0; i < N; i++) {
+      let ux = 0, uy = 1;
+      if (F) {
+        const ci = Math.min(img.h - 1, (Y[i] / H * img.h) | 0) * img.w + Math.min(img.w - 1, (X[i] / W * img.w) | 0);
+        let fx = F.fx[ci], fy = F.fy[ci];
+        if (p.imgDirection === 'across') { const t = fx; fx = -fy; fy = t; }
+        // where the picture has no clear structure, ease towards upright
+        const k = Math.min(1, Math.max(0, (F.coh[ci] - 0.04) / 0.3));
+        if (fy < 0) { fx = -fx; fy = -fy; }
+        ux = fx * k; uy = fy * k + (1 - k);
+        const n = Math.hypot(ux, uy) || 1; ux /= n; uy /= n;
+      } else if (p.imgDirection === 'radial') {
+        const dx = X[i] - W / 2, dy = Y[i] - H / 2, n = Math.hypot(dx, dy);
+        if (n > 1e-6) { ux = dx / n; uy = dy / n; }
+      }
+      const w = (R.normal() * p.wiggle * Math.PI) / 180, c = Math.cos(w), s = Math.sin(w);
+      UX[i] = ux * c - uy * s; UY[i] = ux * s + uy * c; HALF[i] = half;
+    }
+    const out = await assign({ N, PX: X, PY: Y, UX, UY, HALF, halfMax: half, D, lw, rad, gap, W, H }, p, R, maybeYield);
     return {
-      size: S, plan: pl, grain: D, rad, lw, n: N, x: PX, y: PY, ux: UX, uy: UY, half: HALF, shape,
-      circles, lines, dropped, draft: pos.draft, ms: Date.now() - t0 + (pos.fromCache ? 0 : pos.ms),
+      kind: 'image', size: W, width: W, height: H, plan: pl, grain: D, rad, lw, n: N, x: X, y: Y, ux: UX, uy: UY, half: HALF,
+      ...out, draft: pos.draft, ms: Date.now() - t0 + (pos.fromCache ? 0 : pos.ms),
     };
+  }
+
+  // Built-in sample so image mode opens working: three stacked spheres (a cairn) lit from
+  // the top left, with cast shadows and a soft ground shadow. Transparent background.
+  function sampleImage(w = 480, h = 640) {
+    const lum = new Float32Array(w * h), alpha = new Float32Array(w * h);
+    const S = [[0.02, -0.38, 0, 0.36], [0.1, 0.12, 0, 0.21], [0.03, 0.43, 0, 0.13]];
+    let L = [-0.55, 0.6, 0.58]; const ln = Math.hypot(...L); L = L.map((v) => v / ln);
+    const hitSphere = (ox, oy, oz, dx, dy, dz, sp) => {
+      const cx = ox - sp[0], cy = oy - sp[1], cz = oz - sp[2];
+      const b = cx * dx + cy * dy + cz * dz, c = cx * cx + cy * cy + cz * cz - sp[3] * sp[3], d = b * b - c;
+      return d < 0 ? Infinity : -b - Math.sqrt(d);
+    };
+    const sc = 2 / h;
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+      const x = (i + 0.5 - w / 2) * sc, y = (h / 2 - j - 0.5) * sc, k = j * w + i;
+      let best = null, bz = -Infinity;
+      for (const sp of S) { const dx = x - sp[0], dy = y - sp[1], q = sp[3] * sp[3] - dx * dx - dy * dy; if (q > 0 && sp[2] + Math.sqrt(q) > bz) { bz = sp[2] + Math.sqrt(q); best = sp; } }
+      if (best) {
+        const nx = (x - best[0]) / best[3], ny = (y - best[1]) / best[3], nz = (bz - best[2]) / best[3];
+        let d = Math.max(0, nx * L[0] + ny * L[1] + nz * L[2]);
+        for (const sp of S) if (sp !== best) { const t = hitSphere(x, y, bz, L[0], L[1], L[2], sp); if (t > 1e-4 && t < Infinity) { d *= 0.15; break; } }
+        // contact darkening where spheres meet
+        let ao = 1;
+        for (const sp of S) if (sp !== best) { const g = Math.hypot(x - sp[0], y - sp[1], bz - sp[2]) - sp[3]; ao = Math.min(ao, 0.55 + 0.45 * Math.min(1, g / 0.08)); }
+        lum[k] = Math.min(1, (0.08 + 0.95 * d) * ao); alpha[k] = 1;
+      } else {
+        // ground shadow: an ellipse under the cairn, pushed away from the light
+        const gx = (x - 0.16) / 0.62, gy = (y + 0.74) / 0.07, r = gx * gx + gy * gy;
+        if (r < 1) { lum[k] = 0; alpha[k] = 0.85 * Math.pow(1 - r, 1.5); }
+      }
+    }
+    return { id: 'sample-cairn', name: 'Sample: cairn', w, h, lum, alpha };
   }
 
   // Full run. opt.cache: a Map reused between calls, so changing only the 0s and 1s
   // skips the slow stage. opt.draft: quick low-relaxation preview.
+  // opt.image is required when p.source === 'image'.
   async function generate(p, size, opt = {}) {
-    const key = positionsKey(p, size, opt.draft);
+    const img = p.source === 'image' ? opt.image : null;
+    if (p.source === 'image' && !img) throw new Error('No image loaded');
+    const key = img ? imageKey(p, img, size, opt.draft) : positionsKey(p, size, opt.draft);
     let pos = opt.cache && opt.cache.get(key);
     if (pos) { pos = { ...pos, fromCache: true }; opt.cache.delete(key); opt.cache.set(key, pos); }
     else {
-      pos = await positions(p, size, opt);
+      pos = img ? await imagePositions(p, img, size, opt) : await positions(p, size, opt);
       if (opt.cache) { opt.cache.set(key, pos); while (opt.cache.size > 8) opt.cache.delete(opt.cache.keys().next().value); }
     }
-    const res = await place(pos, p, opt);
+    const res = img ? await imagePlace(pos, p, img, opt) : await place(pos, p, opt);
     (opt.onProgress || (() => {}))(1);
     return res;
   }
@@ -387,13 +621,13 @@ const Comput = (() => {
     return `<g fill="${col}">${c.join('')}</g><g fill="none" stroke="${col}" stroke-width="${r2(res.lw * k)}" stroke-linecap="round">${l.join('')}</g>`;
   }
 
-  function bgRect(p, w) { return p.background === 'none' ? '' : `<rect width="${w}" height="${w}" fill="${esc(p.background)}"/>`; }
+  function bgRect(p, w, h = w) { return p.background === 'none' ? '' : `<rect width="${w}" height="${h}" fill="${esc(p.background)}"/>`; }
 
   function svg(res, p, mode = 'elements') {
-    const S = res.size, dec = S <= 512 ? 2 : 1;
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">` +
-      `<!-- Comput · sphere · ${S}px · ${res.circles + res.lines} marks · grain ${r2(res.grain)}px · seed ${p.seed} -->` +
-      bgRect(p, S) + marks(res, p, mode, 1, dec) + `</svg>`;
+    const W = res.width, H = res.height, dec = W <= 512 ? 2 : 1;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
+      `<!-- Comput · ${res.kind === 'image' ? 'illustration' : 'sphere'} · ${W}x${H}px · ${res.circles} 0s · ${res.lines} 1s · mark ${r2(res.grain)}px · seed ${p.seed} -->` +
+      bgRect(p, W, H) + marks(res, p, mode, 1, dec) + `</svg>`;
   }
 
   // one SVG holding several levels of detail; media queries inside the SVG pick
@@ -416,13 +650,14 @@ const Comput = (() => {
       if (i < results.length - 1) q.push(`(max-width:${t[i] - 0.02}px)`);
       css += q.length ? `@media ${q.join(' and ')}{.c${i}{display:inline}}` : `.c${i}{display:inline}`;
     });
+    const VH = Math.round((V * results[0].height) / results[0].width);
     const groups = results.map((r, i) =>
       `<g class="c c${i}"${i === def ? '' : ' display="none"'} data-size="${r.size}">${marks(r, p, 'compact', V / r.size, 1)}</g>`).join('');
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${V} ${V}">` +
-      `<!-- Comput · responsive sphere · detail levels ${sizes.join('/')}px · switch at ${t.join('/')}px · seed ${p.seed} -->` +
-      `<style>${css}</style>` + bgRect(p, V) + groups + `</svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${V} ${VH}">` +
+      `<!-- Comput · responsive ${results[0].kind === 'image' ? 'illustration' : 'sphere'} · detail levels ${sizes.join('/')}px wide · switch at ${t.join('/')}px · seed ${p.seed} -->` +
+      `<style>${css}</style>` + bgRect(p, V, VH) + groups + `</svg>`;
   }
 
-  return { DEFAULTS, POSITION_KEYS, plan, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
+  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, plan, imagePlan, sampleImage, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
 })();
 if (typeof module !== 'undefined') module.exports = Comput;
