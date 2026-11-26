@@ -3,7 +3,8 @@
 Generator for the brand's 0/1 graphics: circles are 0s, pills are 1s. Output is always SVG.
 
 - **Logo:** the sphere logomark, at any size, with centre diffusion (cross or hamburger).
-- **Illustration:** any picture or 3D render turned into 0s and 1s. Dark areas pack tight, light areas stay sparse, outlines get extra packing, and pills follow the shapes. Cut-out PNGs with transparent backgrounds work best.
+- **Scene:** build illustrations from Comput's own 3D shapes (sphere, cube, cylinder, ring, capsule) with shapes that hide each other, cast shadows and an optional ground shadow. Drag shapes on the artboard, turn and tilt the camera, melt shapes together, start from ready-made scenes or save your own (saved in the browser).
+- **Picture:** any picture or 3D render turned into 0s and 1s. Dark areas pack tight, light areas stay sparse, outlines get extra packing, and pills follow the shapes. Cut-out PNGs with transparent backgrounds work best.
   - **3D form** (optional): *Inflate* rounds out any flat cut-out shape, no 3D software needed; or load a *normal map* exported from 3D software. Pills then follow the surface (Burst, Follow, Rings, like the logo), shorten towards the edges, and Comput can light the object with the logo's own light, shadow and rim model. Illustrations keep their own light, separate from the logo's.
 
 - Live: https://brangic.studio/comput

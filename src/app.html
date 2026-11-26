@@ -93,6 +93,8 @@ input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset
 .imgrow { display: flex; gap: 12px; align-items: center }
 .thumb { width: 64px; height: 64px; flex: none; border-radius: 14px; object-fit: contain; background: var(--board); outline: 1px solid var(--rule) }
 .imgbtns { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 }
+.chip .x { margin-left: 6px; opacity: .6 }
+.view.scene canvas { cursor: grab; touch-action: none } .view.scene.grabbing canvas { cursor: grabbing }
 .dropping .view { outline: 2px dashed var(--ink); outline-offset: -10px }
 .light { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 16px; align-items: center }
 .pad { width: 112px; height: 112px; touch-action: none; cursor: crosshair; display: block; border-radius: 50% }
@@ -180,6 +182,30 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
         <p class="sub" data-src="sphere">Bigger sizes get more, smaller 0s and 1s, so the texture holds at any scale.</p>
       </section>
 
+      <section class="mod" data-src="scene">
+        <div class="mod-h"><span class="lab">Scene</span><span class="lab mute">Drag shapes to move them</span></div>
+        <div class="row"><label>Start from</label><span></span></div>
+        <div class="chips" id="presetChips"></div>
+        <div class="group-t">Add a shape</div>
+        <div class="chips" id="addChips"></div>
+        <div class="group-t">Shapes</div>
+        <div class="chips" id="shapeChips"></div>
+        <p class="sub" id="shapeHint" style="margin:0"></p>
+        <div class="rows" id="shapeRows"></div>
+        <div class="pair" id="shapeBtns"><button class="btn ghost sm" id="dupShape">Duplicate</button><button class="btn ghost sm" id="delShape">Remove</button></div>
+      </section>
+
+      <section class="mod" data-src="scene">
+        <div class="mod-h"><span class="lab">Camera and ground</span></div>
+        <div class="row"><label>Frame</label><span></span></div>
+        <div class="chips" id="frameChips"></div>
+        <div class="rows" id="camRows"></div>
+        <div class="group-t">Saved scenes</div>
+        <div class="chips" id="savedChips"></div>
+        <button class="btn ghost sm" id="saveScene">Save this scene</button>
+        <p class="sub" style="margin:0">Saved in this browser only.</p>
+      </section>
+
       <section class="mod" data-src="image">
         <div class="mod-h"><span class="lab">Image</span><span class="lab mute" id="imgName"></span></div>
         <div class="imgrow">
@@ -207,7 +233,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
         <div class="seg" id="lightSeg" role="group" aria-label="Light and shadow from"></div>
       </section>
 
-      <section class="mod" data-src="image">
+      <section class="mod" data-src="image scene">
         <div class="mod-h"><span class="lab">Tone</span><span class="lab mute">Light and shadow</span></div>
         <p class="sub" id="toneNote" style="margin:0">Lit by Comput with the logo's light, shadow and rim. Move the light in the Light panel.</p>
         <div class="rows" id="toneRows"></div>
@@ -230,7 +256,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
 
       <section class="mod">
         <div class="mod-h"><span class="lab">0s and 1s</span><span class="lab mute">Circles / pills</span></div>
-        <div class="rows" id="imgMarkRows" data-src="image"></div>
+        <div class="rows" id="imgMarkRows" data-src="image scene"></div>
         <div class="rows" id="markRows"></div>
         <div class="seg" id="dirSeg" role="group" aria-label="Pill direction" data-src="sphere"></div>
         <div class="seg" id="imgDirSeg" role="group" aria-label="Pill direction"></div>
@@ -353,8 +379,8 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
     lightRows: [
       ['shadowPacking', 'Shadow', 0, 12, 0.1, (v) => (+v).toFixed(1), 'sphere'],
       ['rimPacking', 'Rim', 0, 12, 0.1, (v) => (+v).toFixed(1), 'sphere'],
-      ['iShadowPacking', 'Shadow', 0, 12, 0.1, (v) => (+v).toFixed(1), 'image'],
-      ['iRimPacking', 'Rim', 0, 12, 0.1, (v) => (+v).toFixed(1), 'image'],
+      ['iShadowPacking', 'Shadow', 0, 12, 0.1, (v) => (+v).toFixed(1), 'image scene'],
+      ['iRimPacking', 'Rim', 0, 12, 0.1, (v) => (+v).toFixed(1), 'image scene'],
     ],
     markRows: [
       ['lineShare', 'Share of 1s (pills)', 0, 1, 0.01, (v) => `${Math.round(v * 100)}%`],
@@ -401,7 +427,11 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   }
   const syncs = [
     seg('diffSeg', [['off', 'Off'], ['cross', 'Cross'], ['hamburger', 'Hamburger']], () => p.centreMode, (v) => { p.centreMode = v; changed('centreMode'); }),
-    seg('srcSeg', [['sphere', 'Logo'], ['image', 'Illustration']], () => p.source, (v) => { p.source = v; changed('source'); }),
+    seg('srcSeg', [['sphere', 'Logo'], ['scene', 'Scene'], ['image', 'Picture']], () => p.source, (v) => {
+      p.source = v;
+      if (v === 'scene' && !['burst', 'follow', 'rings', 'flow'].includes(p.imgDirection)) p.imgDirection = 'burst';
+      changed('source');
+    }),
     seg('imgDirSeg', [['flow', 'Along'], ['across', 'Across'], ['radial', 'Radial'], ['vertical', 'Upright']], () => p.imgDirection, (v) => { p.imgDirection = v; changed('imgDirection'); }),
     seg('surfDirSeg', [['burst', 'Burst'], ['follow', 'Follow'], ['rings', 'Rings'], ['flow', 'Along']], () => p.imgDirection, (v) => { p.imgDirection = v; changed('imgDirection'); }),
     seg('nSeg', [['none', 'Flat'], ['inflate', 'Inflate'], ['file', 'Normal map']], () => p.normalSource, (v) => setNormalSource(v)),
@@ -566,6 +596,123 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   $('nFile').addEventListener('change', () => { const f = $('nFile').files[0]; $('nFile').value = ''; if (f) loadNormalFile(f); else if (!NMAP) setNormalSource('none'); });
   $('nFlip').addEventListener('change', () => { p.normalFlipY = $('nFlip').checked; changed('normalFlipY'); });
 
+  // ---------- scenes ----------
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  if (!p.scene || !Array.isArray(p.scene.shapes)) p.scene = clone(Comput.SCENES['zero-one'].scene);
+  ui.sel = Math.min(ui.sel ?? 0, p.scene.shapes.length - 1);
+  const SC = () => p.scene, SEL = () => p.scene.shapes[ui.sel];
+  function rowsFor(host, defs, getObj, onSet) {
+    const el = $(host), rows = {};
+    for (const [k, label, min, max, step, f] of defs) {
+      const row = document.createElement('div'); row.className = 'row';
+      const id = host + '_' + k;
+      row.innerHTML = `<label for="${id}">${label}</label><output class="num" for="${id}"></output><input type="range" id="${id}" min="${min}" max="${max}" step="${step}">`;
+      el.appendChild(row);
+      const inp = row.querySelector('input'), out = row.querySelector('output');
+      inp.addEventListener('input', () => { const o = getObj(); if (!o) return; o[k] = +inp.value; out.textContent = f(o[k]); onSet(k, true); });
+      inp.addEventListener('change', () => onSet(k, false));
+      rows[k] = { row, inp, out, f };
+    }
+    return () => { const o = getObj(); if (!o) return; for (const [k, r] of Object.entries(rows)) { r.inp.value = o[k] ?? 0; r.out.textContent = r.f(o[k] ?? 0); } return rows; };
+  }
+  const deg = (v) => `${Math.round(v)}°`;
+  const syncShapeRows = rowsFor('shapeRows', [
+    ['size', 'Size', 0.06, 1.2, 0.01, f2], ['q', 'Proportion', 0, 1, 0.01, (v) => `${Math.round(v * 100)}%`],
+    ['x', 'Left / right', -2, 2, 0.01, f2], ['y', 'Down / up', -1.2, 1.2, 0.01, f2], ['z', 'Near / far', -1, 1, 0.01, f2],
+    ['rx', 'Tilt', -180, 180, 1, deg], ['ry', 'Turn', -180, 180, 1, deg], ['rz', 'Roll', -180, 180, 1, deg],
+  ], SEL, (k, live) => changed('scene', live));
+  const syncCamRows = rowsFor('camRows', [
+    ['yaw', 'Turn the camera', -180, 180, 1, deg], ['pitch', 'Look down', 0, 60, 1, deg],
+    ['melt', 'Melt shapes together', 0, 0.4, 0.01, f2], ['ground', 'Ground shadow', 0, 1, 0.01, (v) => `${Math.round(v * 100)}%`],
+  ], SC, (k, live) => changed('scene', live));
+  $('presetChips').innerHTML = Object.entries(Comput.SCENES).map(([k, v]) => `<button class="chip" data-k="${k}">${v.label}</button>`).join('');
+  $('presetChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; p.scene = clone(Comput.SCENES[b.dataset.k].scene); ui.sel = 0; changed('scene'); });
+  $('addChips').innerHTML = Object.entries(Comput.SHAPES).map(([k, v]) => `<button class="chip" data-k="${k}">+ ${v.label}</button>`).join('');
+  $('addChips').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (SC().shapes.length >= 12) return toast('A scene can hold up to 12 shapes');
+    SC().shapes.push({ type: b.dataset.k, x: 0, y: 0, z: 0, size: 0.35, q: 0.5, rx: 0, ry: 0, rz: 0 });
+    ui.sel = SC().shapes.length - 1; changed('scene');
+  });
+  $('shapeChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; ui.sel = +b.dataset.i; save(); syncScene(); if (single) draw(single); });
+  $('dupShape').addEventListener('click', () => { const s0 = SEL(); if (!s0 || SC().shapes.length >= 12) return; const c = clone(s0); c.x += 0.15; c.y += 0.1; SC().shapes.push(c); ui.sel = SC().shapes.length - 1; changed('scene'); });
+  $('delShape').addEventListener('click', () => { if (!SEL()) return; SC().shapes.splice(ui.sel, 1); ui.sel = Math.max(0, ui.sel - 1); changed('scene'); });
+  const FRAMES = ['1:1', '4:5', '3:2', '16:9'];
+  $('frameChips').innerHTML = FRAMES.map((f) => `<button class="chip" data-f="${f}">${f}</button>`).join('');
+  $('frameChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; SC().aspect = b.dataset.f; changed('scene'); });
+
+  // saved scenes: kept in this browser
+  const SAVED_KEY = 'comput.scenes';
+  const savedList = () => { try { return JSON.parse(localStorage.getItem(SAVED_KEY) || '[]'); } catch (e) { return []; } };
+  const putSaved = (l) => { try { localStorage.setItem(SAVED_KEY, JSON.stringify(l)); } catch (e) { toast('Could not save in this browser'); } };
+  function drawSaved() {
+    const l = savedList();
+    $('savedChips').innerHTML = l.length ? l.map((s, i) => `<button class="chip" data-i="${i}">${s.name}<span class="x" data-del="${i}" aria-label="Delete ${s.name}">×</span></button>`).join('') : '<span class="sub" style="margin:0">None yet.</span>';
+  }
+  $('saveScene').addEventListener('click', () => {
+    const l = savedList(); const name = `Scene ${String(l.length + 1).padStart(2, '0')}`;
+    l.push({ name, scene: clone(SC()), light: { iLightX: p.iLightX, iLightY: p.iLightY, iShadowPacking: p.iShadowPacking, iRimPacking: p.iRimPacking } });
+    putSaved(l.slice(-24)); drawSaved(); toast(`Saved ${name}`);
+  });
+  $('savedChips').addEventListener('click', (e) => {
+    const del = e.target.closest('[data-del]'), l = savedList();
+    if (del) { l.splice(+del.dataset.del, 1); putSaved(l); drawSaved(); return; }
+    const b = e.target.closest('button'); if (!b) return; const s0 = l[+b.dataset.i]; if (!s0) return;
+    p.scene = clone(s0.scene); Object.assign(p, s0.light || {}); ui.sel = 0; changed('scene'); toast(`Opened ${s0.name}`);
+  });
+
+  function syncScene() {
+    const sc = SC();
+    $('shapeChips').innerHTML = sc.shapes.map((sh, i) => `<button class="chip" data-i="${i}" aria-pressed="${i === ui.sel}">${i + 1} · ${Comput.SHAPES[sh.type]?.label || sh.type}</button>`).join('') || '';
+    const has = !!SEL();
+    $('shapeRows').hidden = $('shapeBtns').hidden = !has;
+    $('shapeHint').textContent = has ? 'Drag it on the artboard, or fine-tune it here.' : 'Add a shape, or start from a ready-made scene.';
+    if (has) { const rows = syncShapeRows(); rows.q.row.hidden = !Comput.SHAPES[SEL().type]?.q; }
+    syncCamRows();
+    $('frameChips').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.f === sc.aspect));
+    drawSaved();
+  }
+
+  // the scene drawn by Comput's renderer: coarse while dragging, fine when let go
+  const sceneMemo = new Map();
+  async function sceneImage(draft, cancelled) {
+    const a = Comput.aspectOf(SC().aspect), long = draft ? 240 : 560;
+    const w = a >= 1 ? long : Math.round(long * a), h = Math.round(w / a);
+    const key = JSON.stringify(SC()) + '|' + [p.iLightX, p.iLightY, w, h].join(',');
+    if (sceneMemo.has(key)) return sceneMemo.get(key);
+    const im = await Comput.renderScene(SC(), p, w, h, { cancelled });
+    sceneMemo.set(key, im); while (sceneMemo.size > 6) sceneMemo.delete(sceneMemo.keys().next().value);
+    return im;
+  }
+  async function sourceImage(draft, cancelled) { return p.source === 'scene' ? sceneImage(draft, cancelled) : effImage(); }
+
+  // drag shapes on the artboard
+  let drag = null;
+  const cvEl = $('cv');
+  cvEl.addEventListener('pointerdown', (e) => {
+    if (p.source !== 'scene' || !single) return;
+    const W = single.width, H = single.height, bb = cvEl.getBoundingClientRect(), k = W / bb.width;
+    const mx = (e.clientX - bb.left) * k, my = (e.clientY - bb.top) * k;
+    let best = -1, bd = Infinity;
+    SC().shapes.forEach((sh, i) => {
+      const pr = Comput.projectShape(SC(), sh, W, H), d = Math.hypot(mx - pr.px, my - pr.py);
+      if (d < Math.max(pr.r * 1.3, 14 * k) && d < bd) { bd = d; best = i; }
+    });
+    if (best < 0) return;
+    ui.sel = best; syncScene();
+    drag = { id: e.pointerId, x: mx, y: my, k, H, W };
+    cvEl.setPointerCapture(e.pointerId); $('view').classList.add('grabbing'); draw(single);
+  });
+  cvEl.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const bb = cvEl.getBoundingClientRect(), mx = (e.clientX - bb.left) * drag.k, my = (e.clientY - bb.top) * drag.k, sh = SEL(); if (!sh) return;
+    const du = ((mx - drag.x) * 2) / drag.H, dv = (-(my - drag.y) * 2) / drag.H, { R, U } = Comput.projectShape(SC(), sh, drag.W, drag.H);
+    sh.x += du * R[0] + dv * U[0]; sh.y += du * R[1] + dv * U[1]; sh.z += du * R[2] + dv * U[2];
+    drag.x = mx; drag.y = my; changed('scene', true);
+  });
+  const endDrag = (e) => { if (!drag || e.pointerId !== drag.id) return; drag = null; $('view').classList.remove('grabbing'); changed('scene', false); };
+  cvEl.addEventListener('pointerup', endDrag); cvEl.addEventListener('pointercancel', endDrag);
+
   // the picture Comput actually works from: the image plus its 3D form, if any
   const effMemo = new Map();
   function effImage() {
@@ -609,7 +756,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   $('clustering').addEventListener('change', () => { p.clustering = $('clustering').checked; changed('clustering'); });
   $('seed').addEventListener('change', () => { p.seed = Math.max(0, Math.round(+$('seed').value || 0)); changed('seed'); });
   $('shuffle').addEventListener('click', () => { p.seed = Math.floor(Math.random() * 9999); changed('seed'); });
-  $('reset').addEventListener('click', () => { p = { ...D, size: p.size, source: p.source }; changed('all'); toast('Settings reset'); });
+  $('reset').addEventListener('click', () => { p = { ...D, size: p.size, source: p.source, scene: clone(Comput.SCENES['zero-one'].scene) }; ui.sel = 0; changed('all'); toast('Settings reset'); });
   $('theme').addEventListener('click', () => {
     const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
     r.dataset.theme = dark ? 'light' : 'dark';
@@ -627,17 +774,19 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
     $('bg').value = bgv; $('bgPick').value = full(bgv); $('transparent').checked = p.background === 'none';
     $('bg').disabled = $('bgPick').disabled = p.background === 'none';
     $('clustering').checked = p.clustering; $('seed').value = p.seed;
-    document.querySelectorAll('[data-src]').forEach((el) => { el.hidden = el.dataset.src !== p.source; });
-    $('sizeLab').textContent = p.source === 'image' ? 'Width' : 'Size';
+    document.querySelectorAll('[data-src]').forEach((el) => { el.hidden = !el.dataset.src.split(' ').includes(p.source); });
+    $('sizeLab').textContent = p.source === 'sphere' ? 'Size' : 'Width';
     $('invert').checked = !!p.imgInvert;
     $('diffRows').hidden = p.centreMode === 'off';
     const radialLogo = p.source === 'sphere' && p.direction === 'radial';
-    const img = p.source === 'image', form = img && p.normalSource !== 'none', lit = form && p.imgLight === 'light';
-    $('lightMod').hidden = !(p.source === 'sphere' || (form && p.imgLight !== 'render'));
+    const img = p.source === 'image', scn = p.source === 'scene';
+    const form = scn || (img && p.normalSource !== 'none'), lit = scn || (form && p.imgLight === 'light');
+    $('lightMod').hidden = !(p.source === 'sphere' || scn || (form && p.imgLight !== 'render'));
     $('imgDirSeg').hidden = !img || form; $('surfDirSeg').hidden = !form;
     $('inflateRows').hidden = !(img && p.normalSource === 'inflate');
     $('nFileRow').hidden = !(img && p.normalSource === 'file');
-    $('lightSrcLab').hidden = $('lightSeg').hidden = !form;
+    $('lightSrcLab').hidden = $('lightSeg').hidden = !(img && form);
+    if (scn) syncScene();
     $('nHint').textContent = { none: 'Add a 3D form so pills follow the surface and Comput can light it like the logo.',
       inflate: 'Rounds out the outline, as if the shape were inflated. Works best with a cut-out PNG. No 3D software needed.',
       file: 'A normal map from 3D software, framed exactly like the picture.' }[p.normalSource] || '';
@@ -658,7 +807,7 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   function changed(k, live = false) {
     save(); if (k !== 'lightX' && k !== 'iLightX') syncAll();
     if (k === 'color' || k === 'background') { if (single) draw(single); if (rspResults.length) composeRsp(); return; }
-    const slow = POS.has(k) || TONE.has(k) || ['all', 'size', 'source', 'image', 'markPx', 'ink', 'normalSource', 'inflateRound', 'normalFlipY'].includes(k);
+    const slow = POS.has(k) || TONE.has(k) || ['all', 'size', 'source', 'image', 'markPx', 'ink', 'normalSource', 'inflateRound', 'normalFlipY', 'scene'].includes(k);
     if (live && slow) { finalDue = true; schedule(true, 30); }
     else schedule(false, live ? 0 : 40);
   }
@@ -676,10 +825,17 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
     try {
       const sizes = ui.mode === 'single' ? [p.size] : ui.lods.slice().sort((a, b) => a - b), out = [];
       const t0 = performance.now();
+      if (p.source === 'scene' && !SC().shapes.length) {
+        single = null; rspResults = []; const cv = $('cv'); cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
+        reads(); busy(false, 'Add a shape to start'); return;
+      }
+      if (p.source === 'scene' && performance.now() - t0 > -1) busy(true, draft ? 'Preview' : 'Drawing the scene', 0.02);
+      const image = await sourceImage(draft, cancelled);
+      if (cancelled()) return;
       for (let i = 0; i < sizes.length; i++) {
         const label = draft ? 'Preview' : ui.mode === 'single' ? 'Computing' : `Level ${i + 1}/${sizes.length}`;
         const r = await Comput.generate(p, sizes[i], {
-          cache, draft, cancelled, image: effImage(),
+          cache, draft, cancelled, image,
           onProgress: (f) => { if (performance.now() - t0 > 120) busy(true, `${label} · ${Math.round(((i + f) / sizes.length) * 100)}%`, (i + f) / sizes.length); },
         });
         if (cancelled()) return;
@@ -732,6 +888,14 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
     ctx.strokeStyle = p.color; ctx.lineWidth = r.lw; ctx.lineCap = 'round'; ctx.beginPath();
     for (let i = 0; i < n; i++) if (shape[i] === 1) { const hx = ux[i] * half[i], hy = uy[i] * half[i]; ctx.moveTo(x[i] - hx, y[i] - hy); ctx.lineTo(x[i] + hx, y[i] + hy); }
     ctx.stroke();
+    if (p.source === 'scene' && SEL() && ui.mode === 'single') {
+      const pr = Comput.projectShape(SC(), SEL(), W, H);
+      ctx.save(); ctx.setLineDash([5 / k, 4 / k]); ctx.lineWidth = 1.5 / k; ctx.strokeStyle = '#7a7f78';
+      ctx.beginPath(); ctx.arc(pr.px, pr.py, pr.r * 1.15, 0, 6.2832); ctx.stroke();
+      ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(pr.px - 5 / k, pr.py); ctx.lineTo(pr.px + 5 / k, pr.py); ctx.moveTo(pr.px, pr.py - 5 / k); ctx.lineTo(pr.px, pr.py + 5 / k); ctx.stroke();
+      ctx.restore();
+    }
+    $('view').classList.toggle('scene', p.source === 'scene');
     $('boardTag').textContent = `${W} × ${H} PX · VIEW ${Math.round(vs * 100)}%`;
   }
 
@@ -800,18 +964,19 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
   // exports always use full detail, never a draft
   async function fullResults(sizes) {
     const out = [];
-    for (const s of sizes) out.push(await Comput.generate(p, s, { cache, image: effImage() }));
+    const image = await sourceImage(false);
+    for (const s of sizes) out.push(await Comput.generate(p, s, { cache, image }));
     return out;
   }
   $('export').addEventListener('click', async () => {
     busy(true, 'Preparing SVG');
     const [r] = await fullResults([p.size]); busy(false, 'Ready');
-    saveFile(`comput-${r.kind === 'image' ? 'illustration' : 'sphere'}-${r.width}x${r.height}-seed${p.seed}${ui.fmt === 'compact' ? '-web' : ''}.svg`, Comput.svg(r, p, ui.fmt));
+    saveFile(`comput-${p.source === 'sphere' ? 'sphere' : p.source === 'scene' ? 'scene' : 'illustration'}-${r.width}x${r.height}-seed${p.seed}${ui.fmt === 'compact' ? '-web' : ''}.svg`, Comput.svg(r, p, ui.fmt));
   });
   $('exportRsp').addEventListener('click', async () => {
     busy(true, 'Preparing SVG');
     const rs = await fullResults(ui.lods.slice().sort((a, b) => a - b)); busy(false, 'Ready');
-    saveFile(`comput-${p.source === 'image' ? 'illustration' : 'sphere'}-responsive-${rs.map((r) => r.size).join('-')}-seed${p.seed}.svg`, Comput.responsiveSvg(rs, p));
+    saveFile(`comput-${p.source === 'sphere' ? 'sphere' : p.source === 'scene' ? 'scene' : 'illustration'}-responsive-${rs.map((r) => r.size).join('-')}-seed${p.seed}.svg`, Comput.responsiveSvg(rs, p));
   });
 
   let tt = 0;

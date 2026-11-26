@@ -397,8 +397,11 @@ const Comput = (() => {
       let t = p.imgInvert ? img.lum[i] : 1 - img.lum[i];       // tone that should carry marks
       if (logoLight) {
         // the logo's model, untouched by the photo tone controls (see imagePlan for the count)
+        if (img.kind && img.kind[i] === 2) { C[i] = img.alpha[i] * 0.9; continue; }   // scene ground: shadow only
         const nx = NM.x[i], ny = NM.y[i], nz = NM.z[i];
-        const li = Math.min(1, Math.max(0, nx * L0 + ny * L1 + nz * L2)), sh = 1 - li, rim = 1 - Math.max(0, nz);
+        let li = Math.min(1, Math.max(0, nx * L0 + ny * L1 + nz * L2));
+        if (img.shadow) li *= (1 - img.shadow[i]) * img.ao[i];                      // scenes: cast and contact shadows
+        const sh = 1 - li, rim = 1 - Math.max(0, nz);
         let tl = (1 + SP * sh * sh + RP * Math.pow(rim, 2.5)) / LT;
         if (p.imgInvert) tl = 1 - tl + 1 / LT;
         C[i] = tl * img.alpha[i];
@@ -421,7 +424,7 @@ const Comput = (() => {
     }
     if (p.imgEdge > 0) {
       // outline map: silhouette (transparency) edges, or luminance edges for opaque pictures
-      const src = img.hasAlpha ? img.alpha : img.lum, E = new Float32Array(n);
+      const src = img.edgeSrc || (img.hasAlpha ? img.alpha : img.lum), E = new Float32Array(n);
       let max = 0;
       for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
         const i = y * w + x;
@@ -433,7 +436,7 @@ const Comput = (() => {
       boxBlur(E, w, h, r); boxBlur(E, w, h, r);
       let m2 = 0; for (let i = 0; i < n; i++) if (E[i] > m2) m2 = E[i];
       if (m2 > 0) for (let i = 0; i < n; i++) {
-        const e = Math.min(1, (E[i] / m2) * 1.6) * p.imgEdge * img.alpha[i];
+        const e = Math.min(1, (E[i] / m2) * 1.6) * p.imgEdge * (img.edgeSrc ? img.edgeSrc[i] : img.alpha[i]);
         C[i] = Math.min(1, C[i] + e * (1 - C[i] * 0.5));
       }
     }
@@ -711,12 +714,181 @@ const Comput = (() => {
     };
   }
 
+  // =================== scenes: Comput's own 3D shapes ===================
+  // scene = { shapes: [{ type, x, y, z, size, q, rx, ry, rz }], melt, ground, yaw, pitch, aspect }
+  // World is y-up; the frame is 2 units tall. Orthographic camera, like the logo.
+  // Shapes are signed distance functions, ray-marched per pixel; the result is a picture
+  // with normals, cast shadows and contact shadows that the logo's light model then reads.
+  const SHAPES = {
+    sphere: { label: 'Sphere', q: false, bound: 1 },
+    cube: { label: 'Cube', q: true, bound: 1.6 },
+    cylinder: { label: 'Cylinder', q: true, bound: 1.6 },
+    ring: { label: 'Ring', q: true, bound: 1.4 },
+    capsule: { label: 'Capsule', q: true, bound: 2.1 },
+  };
+  function shapeSdf(type, q) {
+    switch (type) {
+      case 'cube': { const bx = 0.8, by = 0.8 * (0.25 + 1.5 * q), bz = 0.8, rr = 0.07;
+        return (x, y, z) => { const ax = Math.abs(x) - bx + rr, ay = Math.abs(y) - by + rr, az = Math.abs(z) - bz + rr;
+          return Math.hypot(Math.max(ax, 0), Math.max(ay, 0), Math.max(az, 0)) + Math.min(Math.max(ax, ay, az), 0) - rr; }; }
+      case 'cylinder': { const r = 0.8, hh = 0.8 * (0.2 + 1.6 * q), rr = 0.05;
+        return (x, y, z) => { const dx = Math.hypot(x, z) - r + rr, dy = Math.abs(y) - hh + rr;
+          return Math.min(Math.max(dx, dy), 0) + Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) - rr; }; }
+      case 'ring': { const R = 0.8, r = 0.08 + 0.4 * q;
+        return (x, y, z) => Math.hypot(Math.hypot(x, z) - R, y) - r; }
+      case 'capsule': { const r = 0.42, hh = 1.4 * q;
+        return (x, y, z) => { const cy = y - Math.max(-hh, Math.min(hh, y)); return Math.hypot(x, cy, z) - r; }; }
+      default: return (x, y, z) => Math.hypot(x, y, z) - 1;
+    }
+  }
+  function rotMat(rx, ry, rz) {   // degrees, applied X then Y then Z
+    const a = (rx * Math.PI) / 180, b = (ry * Math.PI) / 180, c = (rz * Math.PI) / 180;
+    const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b), cc = Math.cos(c), sc = Math.sin(c);
+    const X = [1, 0, 0, 0, ca, -sa, 0, sa, ca], Y = [cb, 0, sb, 0, 1, 0, -sb, 0, cb], Z = [cc, -sc, 0, sc, cc, 0, 0, 0, 1];
+    const mul = (A, B) => { const o = []; for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) o.push(A[3 * i] * B[j] + A[3 * i + 1] * B[3 + j] + A[3 * i + 2] * B[6 + j]); return o; };
+    return mul(Z, mul(Y, X));
+  }
+  function camera(scene) {
+    const yaw = ((scene.yaw || 0) * Math.PI) / 180, pitch = ((scene.pitch ?? 12) * Math.PI) / 180;
+    // forward looks towards -z, tilted down by pitch, turned by yaw
+    const F = [-Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)];
+    const Rt = [Math.cos(yaw), 0, -Math.sin(yaw)];
+    const U = [Rt[1] * F[2] - Rt[2] * F[1], Rt[2] * F[0] - Rt[0] * F[2], Rt[0] * F[1] - Rt[1] * F[0]];
+    return { F, R: Rt, U };
+  }
+  // where a shape's centre lands on the artboard (px), and how big it looks
+  function projectShape(scene, sh, W, H) {
+    const { R, U } = camera(scene), aspect = W / H;
+    const u = sh.x * R[0] + sh.y * R[1] + sh.z * R[2], v = sh.x * U[0] + sh.y * U[1] + sh.z * U[2];
+    return { px: ((u + aspect) / (2 * aspect)) * W, py: ((1 - v) / 2) * H, r: (sh.size / 2) * H, R, U };
+  }
+  const aspectOf = (a) => ({ '1:1': 1, '4:5': 0.8, '3:2': 1.5, '16:9': 16 / 9 }[a] || 1);
+  const sceneKey = (scene, p, w, h) => 'scene:' + w + 'x' + h + ':' + JSON.stringify(scene) + ':' + [p.iLightX, p.iLightY].join(',');
+
+  async function renderScene(scene, p, w, h, opt = {}) {
+    const maybeYield = yielder(opt, 0, 1);
+    const n = w * h, aspect = w / h;
+    const lum = new Float32Array(n), alpha = new Float32Array(n), kind = new Uint8Array(n), edgeSrc = new Float32Array(n);
+    const NX = new Float32Array(n), NY = new Float32Array(n), NZ = new Float32Array(n), SH = new Float32Array(n), AO = new Float32Array(n).fill(1);
+    const id = sceneKey(scene, p, w, h);
+    const shapes = (scene.shapes || []).map((sh) => ({
+      sh, f: shapeSdf(sh.type, sh.q ?? 0.5), M: rotMat(sh.rx || 0, sh.ry || 0, sh.rz || 0), s: sh.size,
+    }));
+    const img = { id, name: 'Scene', w, h, lum, alpha, kind, edgeSrc, shadow: SH, ao: AO, normal: { x: NX, y: NY, z: NZ } };
+    if (!shapes.length) return img;
+    const k = Math.max(1e-4, scene.melt || 0);
+    const map = (x, y, z) => {
+      let d = 1e9;
+      for (const o of shapes) {
+        const dx = x - o.sh.x, dy = y - o.sh.y, dz = z - o.sh.z, M = o.M, s = o.s;
+        // inverse rotation (transpose), then scale
+        const lx = (M[0] * dx + M[3] * dy + M[6] * dz) / s, ly = (M[1] * dx + M[4] * dy + M[7] * dz) / s, lz = (M[2] * dx + M[5] * dy + M[8] * dz) / s;
+        const e = o.f(lx, ly, lz) * s;
+        if (k <= 1e-4) d = Math.min(d, e);
+        else { const hh = Math.max(0, Math.min(1, 0.5 + (0.5 * (e - d)) / k)); d = e * (1 - hh) + d * hh - k * hh * (1 - hh); }
+      }
+      return d;
+    };
+    // bounding sphere of the whole scene, to skip empty rays quickly
+    let bx = 0, by = 0, bz = 0; for (const o of shapes) { bx += o.sh.x; by += o.sh.y; bz += o.sh.z; }
+    bx /= shapes.length; by /= shapes.length; bz /= shapes.length;
+    let br = 0; for (const o of shapes) br = Math.max(br, Math.hypot(o.sh.x - bx, o.sh.y - by, o.sh.z - bz) + o.s * SHAPES[o.sh.type].bound + k);
+    const { F, R, U } = camera(scene);
+    let L0 = p.iLightX, L1 = p.iLightY, L2 = 1; { const l = Math.hypot(L0, L1, L2); L0 /= l; L1 /= l; L2 /= l; }
+    const LW = [L0 * R[0] + L1 * U[0] - L2 * F[0], L0 * R[1] + L1 * U[1] - L2 * F[1], L0 * R[2] + L1 * U[2] - L2 * F[2]];
+    const softShadow = (x, y, z) => {
+      let res = 1, t = 0.02;
+      for (let i = 0; i < 40 && t < 5; i++) {
+        const d = map(x + LW[0] * t, y + LW[1] * t, z + LW[2] * t);
+        if (d < 0.0015) return 0;
+        res = Math.min(res, (10 * d) / t); t += Math.max(0.015, Math.min(0.25, d));
+      }
+      return Math.max(0, Math.min(1, res));
+    };
+    const D = 6, HX = new Float32Array(n), HY = new Float32Array(n), HZ = new Float32Array(n);
+    let minY = Infinity;
+    // pass 1: the shapes
+    for (let j = 0; j < h; j++) {
+      const v = 1 - ((j + 0.5) / h) * 2;
+      for (let i = 0; i < w; i++) {
+        const u = (((i + 0.5) / w) * 2 - 1) * aspect, q = j * w + i;
+        const ox = u * R[0] + v * U[0] - F[0] * D, oy = u * R[1] + v * U[1] - F[1] * D, oz = u * R[2] + v * U[2] - F[2] * D;
+        // ray vs bounding sphere
+        const cx = ox - bx, cy = oy - by, cz = oz - bz, b = cx * F[0] + cy * F[1] + cz * F[2], c = cx * cx + cy * cy + cz * cz - br * br, disc = b * b - c;
+        if (disc < 0) continue;
+        let t = Math.max(0, -b - Math.sqrt(disc)); const tEnd = -b + Math.sqrt(disc);
+        let hit = false;
+        for (let it = 0; it < 96 && t < tEnd; it++) {
+          const d = map(ox + F[0] * t, oy + F[1] * t, oz + F[2] * t);
+          if (d < 0.0008) { hit = true; break; }
+          t += d * 0.9;
+        }
+        if (!hit) continue;
+        const x = ox + F[0] * t, y = oy + F[1] * t, z = oz + F[2] * t, e = 0.0015;
+        let gx = map(x + e, y, z) - map(x - e, y, z), gy = map(x, y + e, z) - map(x, y - e, z), gz = map(x, y, z + e) - map(x, y, z - e);
+        const gl = Math.hypot(gx, gy, gz) || 1; gx /= gl; gy /= gl; gz /= gl;
+        // normals in camera space for the light model: x right, y up, z towards you
+        NX[q] = gx * R[0] + gy * R[1] + gz * R[2]; NY[q] = gx * U[0] + gy * U[1] + gz * U[2]; NZ[q] = -(gx * F[0] + gy * F[1] + gz * F[2]);
+        const px = x + gx * 0.004, py = y + gy * 0.004, pz = z + gz * 0.004;
+        SH[q] = 1 - softShadow(px, py, pz);
+        let occ = 0; for (let a = 1; a <= 4; a++) { const hh = 0.04 * a; occ += (hh - map(x + gx * hh, y + gy * hh, z + gz * hh)) / Math.pow(2, a - 1); }
+        AO[q] = Math.max(0.35, Math.min(1, 1 - 2.2 * occ));
+        alpha[q] = 1; kind[q] = 1; edgeSrc[q] = 1; HX[q] = x; HY[q] = y; HZ[q] = z;
+        lum[q] = (0.1 + 0.9 * Math.max(0, gx * LW[0] + gy * LW[1] + gz * LW[2]) * (1 - SH[q])) * AO[q];
+        if (y < minY) minY = y;
+      }
+      if ((j & 7) === 0) await maybeYield(0.8 * (j / h));
+    }
+    // pass 2: shadows on an invisible ground just under the lowest shape
+    const gs = scene.ground ?? 0.6, gy0 = minY - 0.004;
+    if (gs > 0 && minY < Infinity && F[1] < -1e-3) {
+      for (let j = 0; j < h; j++) {
+        const v = 1 - ((j + 0.5) / h) * 2;
+        for (let i = 0; i < w; i++) {
+          const q = j * w + i; if (kind[q]) continue;
+          const u = (((i + 0.5) / w) * 2 - 1) * aspect;
+          const ox = u * R[0] + v * U[0] - F[0] * D, oy = u * R[1] + v * U[1] - F[1] * D, oz = u * R[2] + v * U[2] - F[2] * D;
+          const t = (gy0 - oy) / F[1]; if (t <= 0) continue;
+          const x = ox + F[0] * t, z = oz + F[2] * t;
+          // fade with distance from the shapes, so a low light gives a grounded shadow, not a streak
+          const fade = Math.max(0, 1 - Math.hypot(x - bx, z - bz) / (br * 1.5));
+          if (fade <= 0) continue;
+          const sh = (1 - softShadow(x, gy0 + 0.002, z)) * fade * fade;
+          if (sh > 0.02) { kind[q] = 2; alpha[q] = sh * gs; }
+        }
+        if ((j & 7) === 0) await maybeYield(0.8 + 0.2 * (j / h));
+      }
+    }
+    return img;
+  }
+
+  // ready-made scenes to start from
+  const SCENES = {
+    'zero-one': { label: '0 + 1', scene: { aspect: '3:2', melt: 0, ground: 0.6, yaw: 0, pitch: 12, shapes: [
+      { type: 'ring', x: -0.62, y: 0, z: 0, size: 0.62, q: 0.62, rx: 90, ry: 0, rz: 0 },
+      { type: 'capsule', x: 0.72, y: 0, z: 0, size: 0.6, q: 0.62, rx: 0, ry: 0, rz: 0 }] } },
+    orbit: { label: 'Orbit', scene: { aspect: '1:1', melt: 0, ground: 0.5, yaw: 0, pitch: 14, shapes: [
+      { type: 'sphere', x: 0, y: 0.05, z: 0, size: 0.5, rx: 0, ry: 0, rz: 0 },
+      { type: 'ring', x: 0, y: 0.05, z: 0, size: 0.82, q: 0.12, rx: 18, ry: 0, rz: -16 }] } },
+    stack: { label: 'Stack', scene: { aspect: '4:5', melt: 0, ground: 0.6, yaw: 28, pitch: 16, shapes: [
+      { type: 'cylinder', x: 0, y: -0.52, z: 0, size: 0.42, q: 0.32, rx: 0, ry: 0, rz: 0 },
+      { type: 'cube', x: 0, y: 0.02, z: 0, size: 0.3, q: 0.5, rx: 0, ry: 20, rz: 0 },
+      { type: 'sphere', x: 0, y: 0.5, z: 0, size: 0.22, rx: 0, ry: 0, rz: 0 }] } },
+    pebbles: { label: 'Pebbles', scene: { aspect: '3:2', melt: 0.12, ground: 0.6, yaw: 0, pitch: 10, shapes: [
+      { type: 'sphere', x: -0.55, y: -0.2, z: 0, size: 0.42, rx: 0, ry: 0, rz: 0 },
+      { type: 'sphere', x: 0.05, y: -0.32, z: 0.12, size: 0.32, rx: 0, ry: 0, rz: 0 },
+      { type: 'sphere', x: 0.55, y: -0.4, z: -0.1, size: 0.24, rx: 0, ry: 0, rz: 0 },
+      { type: 'capsule', x: 0.1, y: 0.25, z: -0.2, size: 0.3, q: 0.7, rx: 0, ry: 0, rz: 70 }] } },
+  };
+
   // Full run. opt.cache: a Map reused between calls, so changing only the 0s and 1s
   // skips the slow stage. opt.draft: quick low-relaxation preview.
   // opt.image is required when p.source === 'image'.
   async function generate(p, size, opt = {}) {
-    const img = p.source === 'image' ? opt.image : null;
-    if (p.source === 'image' && !img) throw new Error('No image loaded');
+    if (p.source === 'scene') p = { ...p, imgLight: 'light' };
+    const pic = p.source === 'image' || p.source === 'scene';
+    const img = pic ? opt.image : null;
+    if (pic && !img) throw new Error(p.source === 'scene' ? 'The scene is empty' : 'No image loaded');
     const key = img ? imageKey(p, img, size, opt.draft) : positionsKey(p, size, opt.draft);
     let pos = opt.cache && opt.cache.get(key);
     if (pos) { pos = { ...pos, fromCache: true }; opt.cache.delete(key); opt.cache.set(key, pos); }
@@ -797,6 +969,6 @@ const Comput = (() => {
       `<style>${css}</style>` + bgRect(p, V, VH) + groups + `</svg>`;
   }
 
-  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, plan, imagePlan, sampleImage, combine, inflate, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
+  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
 })();
 if (typeof module !== 'undefined') module.exports = Comput;
