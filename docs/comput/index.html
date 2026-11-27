@@ -231,7 +231,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         <div class="mod-h"><span class="lab" id="sizeLab">Size</span></div>
         <div class="field"><input id="size" type="number" min="16" max="10000" step="1" inputmode="numeric" aria-label="Output size in pixels"><span class="unit">PX</span></div>
         <div class="chips" id="sizeChips"></div>
-        <p class="sub" data-src="sphere">Marks get finer as the size increases.</p>
+        <p class="sub" data-src="sphere">Fine grain at every size. Use 1:1 to view at actual size.</p>
         <p class="sub" data-src="logo">Export size in pixels. Use 1:1 to view at actual size.</p>
       </section>
 
@@ -467,7 +467,7 @@ const Comput = (() => {
                          // bigger sizes add marks and keep them fine, so it stays a particle texture
     baseMarks: 4200,     // MARKS at base size
     grainBase: 80,       // circle diameter = sphere width / grainBase at base size
-    growth: 0.5,         // 0 = grain keeps its pixel size, 1 = grain scales with the logo
+    growth: 0,           // 0 = grain keeps its pixel size (fine particles at any size), 1 = grain scales with the logo
     minGrain: 0.8,       // px, smallest grain allowed (small sizes get fewer marks)
     maxMarks: 120000,    // cap; past it the grain grows instead
     // lighting
@@ -2224,9 +2224,9 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     return Object.assign(o, { source: 'sphere', color: p.logoColor, background: p.logoBg, growth: 0, minGrain: 0.5, maxMarks: LOGO_MAX_MARKS });
   }
   const CK = () => (p.source === 'logo' ? ['logoColor', 'logoBg'] : ['color', 'background']);
-  // The Logo tab keeps the designer's look: up to 1024 px every mark is ~1 px (at 96 px it is their logo exactly),
-  // so it always reads as fine particles. Above that, the 1024 px logo is scaled, so big sizes are identical to it
-  // and the pills only show when you zoom right in.
+  // Logo and The Orb: up to 1024 px every mark keeps its ~1 px grain, so it always reads as fine particles.
+  // Above that, the 1024 px render is scaled, so big sizes are identical to it and the pills only show when
+  // you zoom right in. While a slider is being dragged, The Orb previews at 256 px, scaled.
   const LOGO_MASTER = 1024;   // big enough that the preview never shows a mark above ~1 px on screen
   function scaleResult(r, size) {
     const k = size / r.width, sc = (a) => { const o = new Float64Array(a.length); for (let i = 0; i < a.length; i++) o[i] = a[i] * k; return o; };
@@ -2234,19 +2234,25 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
       rad: r.rad * k, lw: r.lw * k, grain: r.grain * k, plan: { ...r.plan, size, grain: r.plan.grain * k, radius: r.plan.radius * k } };
   }
   async function genAt(size, args) {
-    if (p.source !== 'logo') return ENG.gen({ p, size, ...args });
-    const at = Math.min(size, LOGO_MASTER);
-    const r = await ENG.gen({ ...args, p: eng(), size: at, opt: { ...(args.opt || {}), draft: false } });
+    if (p.source !== 'logo' && p.source !== 'sphere') return ENG.gen({ p, size, ...args });
+    const logo = p.source === 'logo', draft = !logo && !!(args.opt && args.opt.draft);
+    const at = Math.min(size, draft ? 256 : LOGO_MASTER);
+    const base = args.p || p, P = logo ? eng() : { ...base, maxMarks: Math.max(base.maxMarks, LOGO_MAX_MARKS) };
+    const r = await ENG.gen({ ...args, p: P, size: at, opt: { ...(args.opt || {}), draft: logo ? false : draft } });
     return at === size ? r : scaleResult(r, size);
   }
   const fileKind = () => ({ sphere: 'orb', logo: 'logo', scene: 'scene' }[p.source] || 'illustration');
   const POS = new Set(Comput.POSITION_KEYS), TONE = new Set(Comput.TONE_KEYS);
   const SIZES = [32, 64, 128, 256, 512, 1024, 2048, 4096];
-  const KEY = 'comput.v4';
+  const KEY = 'comput.v5';
   let p = { ...D };
   let ui = { mode: 'single', view: 'fit', fmt: 'elements', lods: [128, 512, 2048], rspW: 512 };
   try {
     let s = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (!s) { // The Orb now keeps a fine 1 px grain at every size, like the Logo tab
+      s = JSON.parse(localStorage.getItem('comput.v4') || 'null');
+      if (s && s.p && s.p.growth === 0.5) s.p.growth = D.growth;
+    }
     if (!s) { // a short-lived version pinned the original to 512 px, which lost the particle look: back to 96
       s = JSON.parse(localStorage.getItem('comput.v3') || 'null');
       if (s && s.p && s.p.base === 512) s.p.base = D.base;
@@ -3895,7 +3901,8 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
       if (type === 'build' || type === 'diffuse') {
         busy(true, 'Preparing', 0.1);
         const pp = type === 'diffuse' ? { ...p, centreMode: 'off' } : p;
-        const base = await ENG.gen({ p: pp, size: p.size, ...source(), keep: true });
+        const base = p.source === 'sphere' ? await genAt(p.size, { ...source(), keep: true, p: pp })
+          : await ENG.gen({ p: pp, size: p.size, ...source(), keep: true });
         if (gone()) return;
         const R = Comput.rng(p.seed + 5), u = new Float32Array(base.n); for (let j = 0; j < base.n; j++) u[j] = R();
         MOT.frames = { mode: 'mask', type, base, u, count, fps };
@@ -3911,8 +3918,11 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
           let srcs;
           if (p.source === 'scene') { const a = Comput.aspectOf(pf.scene.aspect), w = a >= 1 ? 420 : Math.round(420 * a); srcs = { src: { kind: 'scene', scene: VIS(pf.scene), w, h: Math.round(w / a) } }; }
           else srcs = source();
-          const r = await ENG.gen({ p: pf, size: p.size, ...srcs, keep: true, opt: { init: prev, fixedN: N, iters: prev ? 3 : undefined, stable: true } });
+          const orb = p.source === 'sphere', at = orb ? Math.min(p.size, LOGO_MASTER) : p.size;
+          let r = await ENG.gen({ p: orb ? { ...pf, maxMarks: Math.max(pf.maxMarks, LOGO_MAX_MARKS) } : pf, size: at, ...srcs, keep: true, opt: { init: prev, fixedN: N, iters: prev ? 3 : undefined, stable: true } });
           if (gone()) return;
+          const relaxed = r.relaxed; if (at !== p.size) r = scaleResult(r, p.size);
+          r.relaxed = relaxed;
           prev = r.relaxed; N = r.n; list.push(compact(r));
           const el = (performance.now() - t0) / 1000, left = (el / (f + 1)) * (count - f - 1);
           busy(true, `Frame ${f + 1}/${count} · about ${Math.ceil(left)} s left`, (f + 1) / count);

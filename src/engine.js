@@ -14,7 +14,7 @@ const Comput = (() => {
                          // bigger sizes add marks and keep them fine, so it stays a particle texture
     baseMarks: 4200,     // MARKS at base size
     grainBase: 80,       // circle diameter = sphere width / grainBase at base size
-    growth: 0.5,         // 0 = grain keeps its pixel size, 1 = grain scales with the logo
+    growth: 0,           // 0 = grain keeps its pixel size (fine particles at any size), 1 = grain scales with the logo
     minGrain: 0.8,       // px, smallest grain allowed (small sizes get fewer marks)
     maxMarks: 120000,    // cap; past it the grain grows instead
     // lighting
