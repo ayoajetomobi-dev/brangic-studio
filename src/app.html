@@ -288,6 +288,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         <p class="sub" id="toneNote" style="margin:0">Lit by Comput with the logo's light, shadow and rim. Move the light in the Light panel.</p>
         <div class="rows" id="toneRows"></div>
         <label class="toggle">Light marks on dark (marks follow the light)<input type="checkbox" id="invert"></label>
+        <label class="toggle">Remove plain background<input type="checkbox" id="knockout"></label>
       </section>
 
       <section class="mod" data-src="sphere">
@@ -635,6 +636,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     else if (!p.imgInvert && p.color === '#ffffff' && p.background === '#0a0a0a') { p.color = D.color; p.background = 'none'; }
     changed('imgInvert');
   });
+  $('knockout').addEventListener('change', () => { p.imgKnockout = $('knockout').checked; changed('imgKnockout'); });
   const app = document.querySelector('.app');
   document.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); app.classList.add('dropping'); } });
   document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) app.classList.remove('dropping'); });
@@ -834,7 +836,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   // All heavy work runs off the page, so dragging, sliders and buttons never wait on it.
   let cancelLocal = 0;
   const plainImage = (im) => ({ id: im.id, name: im.name, w: im.w, h: im.h, lum: im.lum, alpha: im.alpha, normal: im.normal || null,
-    kind: im.kind, edgeSrc: im.edgeSrc, shadow: im.shadow, ao: im.ao });
+    kind: im.kind, edgeSrc: im.edgeSrc, shadow: im.shadow, ao: im.ao, ...(im.hasAlpha !== undefined ? { hasAlpha: im.hasAlpha } : {}) });
   const ENG = (() => {
     let w = null, seq = 0; const pend = new Map(), sent = new Set();
     try {
@@ -1084,16 +1086,18 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   const effMemo = new Map();
   function effImage() {
     if (!IMG) return null;
+    let base = IMG;
+    if (p.imgKnockout) { const kk = 'ko|' + IMG.id; base = effMemo.get(kk) || Comput.knockout(IMG); effMemo.set(kk, base); }
     let nm = null;
     if (p.normalSource === 'inflate') {
-      const k = 'inf|' + IMG.id + '|' + p.inflateRound;
-      nm = effMemo.get(k) || Comput.inflate(IMG, p.inflateRound); effMemo.set(k, nm);
+      const k = 'inf|' + base.id + '|' + p.inflateRound;
+      nm = effMemo.get(k) || Comput.inflate(base, p.inflateRound); effMemo.set(k, nm);
     } else if (p.normalSource === 'file') nm = NMAP;
-    if (!nm) return IMG;
+    if (!nm) return base;
     const flip = p.normalSource === 'file' && p.normalFlipY;
-    const k = IMG.id + '|' + nm.id + '|' + p.imgLight + '|' + flip;
+    const k = base.id + '|' + nm.id + '|' + p.imgLight + '|' + flip;
     let e = effMemo.get(k);
-    if (!e) { e = Comput.combine(IMG, nm, p.imgLight, flip); effMemo.set(k, e); }
+    if (!e) { e = Comput.combine(base, nm, p.imgLight, flip); effMemo.set(k, e); }
     while (effMemo.size > 12) effMemo.delete(effMemo.keys().next().value);
     return e;
   }
@@ -1143,7 +1147,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     $('clustering').checked = p.clustering; $('seed').value = p.seed;
     document.querySelectorAll('[data-src]').forEach((el) => { el.hidden = !el.dataset.src.split(' ').includes(p.source); });
     $('sizeLab').textContent = p.source === 'sphere' ? 'Size' : 'Width';
-    $('invert').checked = !!p.imgInvert;
+    $('invert').checked = !!p.imgInvert; $('knockout').checked = !!p.imgKnockout;
     $('diffRows').hidden = p.centreMode === 'off';
     const radialLogo = p.source === 'sphere' && p.direction === 'radial';
     const img = p.source === 'image', scn = p.source === 'scene';
@@ -1178,7 +1182,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     save(); if (k !== 'lightX' && k !== 'iLightX' && !(live && k === 'scene')) syncAll();
     if (k === 'color' || k === 'background') { if (single) draw(single); if (gpuLive() && $('gl').classList.contains('on')) requestGPU(); if (rspResults.length) composeRsp(); return; }
     if (gpuLive() && k !== 'size' && k !== 'seed') { sceneTouched(live); return; }
-    const slow = POS.has(k) || TONE.has(k) || ['all', 'size', 'source', 'image', 'markPx', 'ink', 'normalSource', 'inflateRound', 'normalFlipY', 'scene'].includes(k);
+    const slow = POS.has(k) || TONE.has(k) || ['all', 'size', 'source', 'image', 'markPx', 'ink', 'normalSource', 'inflateRound', 'normalFlipY', 'scene', 'imgKnockout'].includes(k);
     if (live && slow) { finalDue = true; schedule(true, 30); }
     else schedule(false, live ? 0 : 40);
   }
@@ -1245,14 +1249,19 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   }
   // r: a result, or a compact motion frame (hx/hy instead of ux/uy/half); vis: optional per-mark visibility
   function paintMarks(ctx, r, vis) {
-    const { x, y, shape, n, rad } = r, hxA = r.hx, hyA = r.hy;
-    ctx.fillStyle = p.color; ctx.beginPath();
-    for (let i = 0; i < n; i++) if (shape[i] === 0 && (!vis || vis[i])) { ctx.moveTo(x[i] + rad, y[i]); ctx.arc(x[i], y[i], rad, 0, 6.2832); }
+    // drawn in batches: browsers silently drop a single path with hundreds of thousands of parts
+    const { x, y, shape, n, rad } = r, hxA = r.hx, hyA = r.hy, B = 20000;
+    ctx.fillStyle = p.color; ctx.beginPath(); let c = 0;
+    for (let i = 0; i < n; i++) if (shape[i] === 0 && (!vis || vis[i])) {
+      ctx.moveTo(x[i] + rad, y[i]); ctx.arc(x[i], y[i], rad, 0, 6.2832);
+      if (++c === B) { ctx.fill(); ctx.beginPath(); c = 0; }
+    }
     ctx.fill();
-    ctx.strokeStyle = p.color; ctx.lineWidth = r.lw; ctx.lineCap = 'round'; ctx.beginPath();
+    ctx.strokeStyle = p.color; ctx.lineWidth = r.lw; ctx.lineCap = 'round'; ctx.beginPath(); c = 0;
     for (let i = 0; i < n; i++) if (shape[i] === 1 && (!vis || vis[i])) {
       const hx = hxA ? hxA[i] : r.ux[i] * r.half[i], hy = hyA ? hyA[i] : r.uy[i] * r.half[i];
       ctx.moveTo(x[i] - hx, y[i] - hy); ctx.lineTo(x[i] + hx, y[i] + hy);
+      if (++c === B) { ctx.stroke(); ctx.beginPath(); c = 0; }
     }
     ctx.stroke();
   }
@@ -1369,6 +1378,9 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     { name: 'Night', look: { color: '#ffffff', background: '#0a0a0a', imgInvert: true } },
     { name: 'Fine', look: { markPx: 1.6, ink: 1.05, lineShare: 0.55, lineLength: 1.9 } },
     { name: 'Bold', look: { markPx: 4, ink: 0.95, lineShare: 0.7, lineLength: 2.1 } },
+    // tuned on a photographed silver coin: light marks on black, only the brightest metal carries marks
+    { name: 'Metal', look: { color: '#ffffff', background: '#0a0a0a', imgInvert: true, markPx: 1.4, ink: 1, imgContrast: 3, imgBrightness: 0.55,
+      imgGamma: 1.4, imgFloor: 0.03, imgCutoff: 0.1, imgEdge: 0.3, lineShare: 0.35, lineLength: 1.6, organic: 0.3, wiggle: 4, gap: 6 } },
   ];
   const LOOKS_KEY = 'comput.looks';
   const savedLooks = () => { try { return JSON.parse(localStorage.getItem(LOOKS_KEY) || '[]'); } catch (e) { return []; } };

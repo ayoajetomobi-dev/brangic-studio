@@ -40,6 +40,7 @@ const Comput = (() => {
     imgInvert: false,    // false: dark areas get marks (ink on paper); true: light areas get marks (light on black)
     imgFloor: 0.08,      // sparse marks even in the lightest parts of a shape, so the form still reads
     imgEdge: 0.6,        // extra packing along outlines, like the rim of the logo
+    imgKnockout: true,   // leave a plain backdrop around the subject empty (photos without transparency)
     imgDirection: 'flow',// 'flow' along shapes, 'across' through shapes, 'radial', 'vertical';
                          // with a normal map also 'burst' (like the logo), 'follow' (pole to pole), 'rings'
     imgLight: 'light',   // with a 3D form: tone from Comput's own 'light' (the logo's), the 'render', or a 'mix'
@@ -700,6 +701,35 @@ const Comput = (() => {
     return D;
   }
 
+  // Find a plain backdrop: flood-fill in from the picture's border across pixels close to the
+  // border's typical brightness. Returns a mask (1 = backdrop) or null when the border is busy.
+  function backdropMask(img, tol = 0.07) {
+    const { w, h, lum, alpha } = img, n = w * h, border = [];
+    for (let i = 0; i < w; i++) border.push(lum[i], lum[(h - 1) * w + i]);
+    for (let j = 0; j < h; j++) border.push(lum[j * w], lum[j * w + w - 1]);
+    border.sort((a, b) => a - b);
+    const med = border[border.length >> 1];
+    const near = border.filter((v) => Math.abs(v - med) < tol).length / border.length;
+    if (near < 0.8) return null;                         // the edge of the picture is not a plain backdrop
+    const mask = new Uint8Array(n), stack = new Int32Array(n); let top = 0;
+    const push = (k) => { if (!mask[k] && alpha[k] > 0.5 && Math.abs(lum[k] - med) < tol) { mask[k] = 1; stack[top++] = k; } };
+    for (let i = 0; i < w; i++) { push(i); push((h - 1) * w + i); }
+    for (let j = 0; j < h; j++) { push(j * w); push(j * w + w - 1); }
+    while (top) {
+      const k = stack[--top], x = k % w, y = (k - x) / w;
+      if (x > 0) push(k - 1); if (x < w - 1) push(k + 1); if (y > 0) push(k - w); if (y < h - 1) push(k + w);
+    }
+    return mask;
+  }
+  // the picture with its plain backdrop made transparent (edges still come from the picture itself)
+  function knockout(img) {
+    if (img.alpha.some((a) => a < 0.99)) return img;   // already has real transparency
+    const m = backdropMask(img); if (!m) return img;
+    const alpha = new Float32Array(img.w * img.h);
+    for (let i = 0; i < alpha.length; i++) alpha[i] = m[i] ? 0 : img.alpha[i];
+    return { ...img, id: img.id + '|ko', alpha, hasAlpha: false, _cov: null, _flow: null };
+  }
+
   // Put a render and a normal map together. nmap = { id, w, h, x, y, z (y-up), alpha }.
   // 'light' uses the normal map alone (its size and outline); otherwise the render leads and
   // the normals are stretched to match it.
@@ -1091,6 +1121,6 @@ const Comput = (() => {
       `<style>${css}</style>` + bgRect(p, V, VH) + groups + `</svg>`;
   }
 
-  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, coverage, pickShape, boundOf, camera, framing, projectPoint, groundY, rotMat, matToEuler, axisMat, matMul, logoDensity, shapeExtent, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
+  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, coverage, pickShape, boundOf, knockout, camera, framing, projectPoint, groundY, rotMat, matToEuler, axisMat, matMul, logoDensity, shapeExtent, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
 })();
 if (typeof module !== 'undefined') module.exports = Comput;
