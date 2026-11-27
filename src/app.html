@@ -456,14 +456,18 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   const D = Comput.DEFAULTS;
   const POS = new Set(Comput.POSITION_KEYS), TONE = new Set(Comput.TONE_KEYS);
   const SIZES = [32, 64, 128, 256, 512, 1024, 2048, 4096];
-  const KEY = 'comput.v3';
+  const KEY = 'comput.v4';
   let p = { ...D };
   let ui = { mode: 'single', view: 'fit', fmt: 'elements', lods: [128, 512, 2048], rspW: 512 };
   try {
     let s = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (!s) { // carry over settings from the last version, moving untouched defaults to the original logo's
+    if (!s) { // a short-lived version pinned the original to 512 px, which lost the particle look: back to 96
+      s = JSON.parse(localStorage.getItem('comput.v3') || 'null');
+      if (s && s.p && s.p.base === 512) s.p.base = D.base;
+    }
+    if (!s) { // carry over settings from the last version; the original logo's marks are pure black
       s = JSON.parse(localStorage.getItem('comput.v2') || 'null');
-      if (s && s.p) { if (s.p.base === 96) s.p.base = D.base; if (s.p.color === '#111111') s.p.color = D.color; }
+      if (s && s.p && s.p.color === '#111111') s.p.color = D.color;
     }
     if (!s) { // carry over settings from the first version
       s = JSON.parse(localStorage.getItem('comput.v1') || 'null');
@@ -1744,7 +1748,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     'clustering', 'foreshorten', 'imgEdge', 'imgDetail', 'imgFloor', 'imgContrast', 'imgBrightness', 'imgGamma', 'imgCutoff', 'imgInvert',
     'iLightX', 'iLightY', 'iShadowPacking', 'iRimPacking', 'growth', 'maxMarks'];
   const LOOKS = [
-    // the designer's original logo: every setting from their script (exact at 512 px)
+    // the designer's original logo: every setting from their script (exact at 96 px, its own size; bigger stays a fine particle texture)
     { name: 'Original', original: true },
     { name: 'Ink', look: { color: '#000000', background: 'none', imgInvert: false, markPx: 2.5, ink: 1, lineShare: 0.6, lineLength: 1.9, imgDetail: 0.6 } },
     { name: 'Paper', look: { color: '#121312', background: '#ecedea', imgInvert: false } },
@@ -1787,7 +1791,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     if (del) { mine.splice(+del.dataset.del, 1); putLooks(mine); drawLooks(); return; }
     const b = e.target.closest('button'); if (!b) return;
     const l = b.dataset.b !== undefined ? LOOKS[+b.dataset.b] : mine[+b.dataset.m]; if (!l) return;
-    if (l.original) { for (const k of ORIGINAL_KEYS) p[k] = D[k]; changed('all'); toast(p.source === 'sphere' ? (p.size === D.base ? 'Look: Original, exactly the original logo' : `Look: Original. Exact at ${D.base} px; other widths adapt the mark size`) : 'Look: Original'); return; }
+    if (l.original) { for (const k of ORIGINAL_KEYS) p[k] = D[k]; changed('all'); toast(p.source === 'sphere' && p.size !== D.base ? `Look: Original. At ${D.base} px it is the shared logo exactly; bigger stays a fine particle texture` : 'Look: Original'); return; }
     Object.assign(p, cleanLook(l.look)); if (p.background !== 'none') lastBg = p.background;
     changed('all'); toast(`Look: ${l.name}`);
   });

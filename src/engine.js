@@ -10,7 +10,8 @@ const Comput = (() => {
   const DEFAULTS = {
     size: 512,
     // scaling law
-    base: 512,           // px size where The Orb is exactly the designer's original logo (4200 marks, each 1/80 of the ball)
+    base: 96,            // px size where The Orb is exactly the designer's original logo (4200 marks, each 1/80 of the ball);
+                         // bigger sizes add marks and keep them fine, so it stays a particle texture
     baseMarks: 4200,     // MARKS at base size
     grainBase: 80,       // circle diameter = sphere width / grainBase at base size
     growth: 0.5,         // 0 = grain keeps its pixel size, 1 = grain scales with the logo
