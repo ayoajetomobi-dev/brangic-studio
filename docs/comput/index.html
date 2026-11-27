@@ -2859,13 +2859,16 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
   // logo's own geometry, light or diffusion.
   const LOOK_KEYS = ['color', 'background', 'markPx', 'ink', 'lineShare', 'lineLength', 'lineWeight', 'wiggle', 'gap', 'organic',
     'clustering', 'foreshorten', 'imgEdge', 'imgDetail', 'imgFloor', 'imgContrast', 'imgBrightness', 'imgGamma', 'imgCutoff', 'imgInvert',
-    'iLightX', 'iLightY', 'iShadowPacking', 'iRimPacking', 'growth'];
+    'iLightX', 'iLightY', 'iShadowPacking', 'iRimPacking', 'growth', 'maxMarks'];
   const LOOKS = [
     { name: 'Ink', look: { color: '#111111', background: 'none', imgInvert: false, markPx: 2.5, ink: 1, lineShare: 0.6, lineLength: 1.9, imgDetail: 0.6 } },
     { name: 'Paper', look: { color: '#121312', background: '#ecedea', imgInvert: false } },
     { name: 'Night', look: { color: '#ffffff', background: '#0a0a0a', imgInvert: true } },
     { name: 'Fine', look: { markPx: 1.6, ink: 1.05, lineShare: 0.55, lineLength: 1.9 } },
     { name: 'Bold', look: { markPx: 4, ink: 0.95, lineShare: 0.7, lineLength: 2.1 } },
+    // tuned on a busy black-and-white photograph: lighter mid-tones, finer marks, a soft outline
+    { name: 'Photo', look: { color: '#111111', background: 'none', imgInvert: false, markPx: 1.7, ink: 0.95, imgContrast: 1.5, imgGamma: 1.5,
+      imgEdge: 0.2, imgFloor: 0.02, imgCutoff: 0.05, imgDetail: 0.6, maxMarks: 250000 } },
     // tuned on a photographed silver coin: light marks on black, only the brightest metal carries marks
     { name: 'Metal', look: { color: '#ffffff', background: '#0a0a0a', imgInvert: true, markPx: 1.4, ink: 1, imgContrast: 3, imgBrightness: 0.55,
       imgGamma: 1.4, imgFloor: 0.03, imgCutoff: 0.1, imgEdge: 0.3, lineShare: 0.35, lineLength: 1.6, organic: 0.3, wiggle: 4, gap: 6 } },
