@@ -17,6 +17,7 @@ Shape types and their dimensions (full sizes, not half sizes):
 - ring: a torus; radius to the centre of the tube, tube = tube thickness. Lies flat by default; rx 90 stands it up facing the camera.
 - capsule: a pill along its y axis; radius and total length.
 - Any shape can have "hidden": true; keep hidden layers as they are unless asked.
+- Layers of type "drawn" are outlines the designer drew themselves (points, width, height, depth, inflate): keep their points exactly; you may move, rotate or resize them when asked.
 - Any shape can have "cut": true. A cut shape carves itself out of everything listed before it: use it for screens set into a body, holes, grooves, lens wells, the hollow of a cup. List cuts after the shapes they cut.
 rx, ry, rz: rotation in degrees about the shape's own x, then y, then z axis.
 Camera and light: yaw turns the camera around the subject (try -20 to -40 for a three-quarter view that shows depth), pitch 0-80 looks down from above, zoom > 1 moves in. light x,y (-1..1) is where the light comes from on screen; top-left reads best. ground 0-1 is the strength of the shadow on the floor (0 for floating objects). melt 0-0.4 fuses shapes into soft blobs: keep it 0 for manufactured objects.

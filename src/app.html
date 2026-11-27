@@ -157,6 +157,10 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
 #ov .ring.solid { stroke-dasharray: none }
 #ov text { font: 600 10px var(--font); fill: #121312; paint-order: stroke; stroke: #f4f5f2; stroke-width: 3px; letter-spacing: .06em }
 .view.scene { touch-action: none; cursor: grab } .view.scene.grabbing { cursor: grabbing }
+.view.scene.drawing, .view.scene.drawing canvas { cursor: crosshair }
+#ov .dp { fill: #121312; stroke: #f4f5f2; stroke-width: 1.5; vector-effect: non-scaling-stroke }
+#ov .dp.first { fill: #f4f5f2; stroke: #121312 }
+#ov .dpath { fill: rgba(18, 19, 18, .06); stroke: #121312; stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-dasharray: 5 4 }
 .kbd { font-size: 11px; color: var(--mute) }
 .board .tag { position: absolute; left: 0; top: -18px; font-size: 10px; letter-spacing: .08em; color: var(--mute); white-space: nowrap }
 .view.one .board { margin: auto }
@@ -370,6 +374,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         <button class="btn sm" id="motGo">Render</button>
       </div>
       <div class="rsp-ctl" id="sceneBar" hidden>
+        <div class="seg" id="sceneViewSeg" role="group" aria-label="View" style="min-width:150px"><button data-v="wire" aria-pressed="false" title="Outlines only, fastest for moving around and drawing (W)">Wire</button><button data-v="render" aria-pressed="true" title="The 0s and 1s as they will export (W)">Rendered</button></div>
         <div class="seg" id="toolSeg" role="group" aria-label="Tool"><button data-v="move" aria-pressed="true" title="Move (G)">Move</button><button data-v="rotate" aria-pressed="false" title="Rotate (R)">Rotate</button><button data-v="scale" aria-pressed="false" title="Scale (S)">Scale</button></div>
         <div class="seg" id="axisSeg" role="group" aria-label="Axis" style="min-width:150px"><button data-v="free" aria-pressed="true" title="Free (Esc)">Free</button><button data-v="x" aria-pressed="false" title="X axis (X)">X</button><button data-v="y" aria-pressed="false" title="Y axis (Y)">Y</button><button data-v="z" aria-pressed="false" title="Z axis (Z)">Z</button></div>
         <button class="btn ghost sm" id="resetView" title="Reset view (F)">Reset view</button>
@@ -737,7 +742,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     ['size', 'Size', 0.06, 1.5, 0.01, f2],
     ['w', 'Width', 0.05, 4, 0.01, (v) => `${(+v).toFixed(2)}×`, 1], ['h', 'Height', 0.05, 4, 0.01, (v) => `${(+v).toFixed(2)}×`, 1],
     ['d', 'Depth', 0.05, 4, 0.01, (v) => `${(+v).toFixed(2)}×`, 1],
-    ['round', 'Rounded corners', 0, 0.95, 0.01, (v) => `${Math.round(v * 100)}%`, (o) => (o.type === 'cylinder' ? 0.0625 : 0.0875)],
+    ['round', 'Rounded corners', 0, 0.95, 0.01, (v) => `${Math.round(v * 100)}%`, (o) => (o.type === 'cylinder' ? 0.0625 : o.type === 'custom' ? 0.6 : 0.0875)],
     ['x', 'Left / right', -2, 2, 0.01, f2], ['y', 'Down / up', -1.2, 1.2, 0.01, f2], ['z', 'Near / far', -1, 1, 0.01, f2],
     ['rx', 'Tilt', -180, 180, 1, deg], ['ry', 'Turn', -180, 180, 1, deg], ['rz', 'Roll', -180, 180, 1, deg],
   ], SEL, (k, live) => changed('scene', live));
@@ -747,8 +752,10 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   ], SC, (k, live) => changed('scene', live));
   $('presetChips').innerHTML = Object.entries(Comput.SCENES).map(([k, v]) => `<button class="chip" data-k="${k}">${v.label}</button>`).join('');
   $('presetChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; p.scene = clone(Comput.SCENES[b.dataset.k].scene); ui.sel = 0; changed('scene'); });
-  $('addChips').innerHTML = Object.entries(Comput.SHAPES).map(([k, v]) => `<button class="chip" data-k="${k}">+ ${v.label}</button>`).join('');
+  $('addChips').innerHTML = Object.entries(Comput.SHAPES).filter(([k]) => k !== 'custom').map(([k, v]) => `<button class="chip" data-k="${k}">+ ${v.label}</button>`).join('') +
+    '<button class="chip" data-k="draw" title="Click points on the artboard to draw your own shape">+ Draw</button>';
   $('addChips').addEventListener('click', (e) => {
+    if (e.target.closest('[data-k="draw"]')) { startDraw(); return; }
     const b = e.target.closest('button'); if (!b) return;
     if (SC().shapes.length >= 24) return toast('A scene can hold up to 24 shapes');
     SC().shapes.push({ type: b.dataset.k, x: 0, y: 0, z: 0, size: 0.35, q: 0.5, rx: 0, ry: 0, rz: 0 });
@@ -829,7 +836,8 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
       // name the stretch sliders by what they do on this shape
       const L = { cylinder: ['Radius', 'Height', null], ring: ['Radius', 'Thickness', null], capsule: ['Thickness', 'Length', null] }[t] || ['Width', 'Height', 'Depth'];
       ['w', 'h', 'd'].forEach((k, i) => { rows[k].row.hidden = !L[i]; if (L[i]) rows[k].row.querySelector('label').textContent = L[i]; });
-      rows.round.row.hidden = !(t === 'cube' || t === 'cylinder');
+      rows.round.row.hidden = !(t === 'cube' || t === 'cylinder' || t === 'custom');
+      rows.round.row.querySelector('label').textContent = t === 'custom' ? 'Inflate' : 'Rounded corners';
       $('cutShape').checked = !!SEL().cut;
     }
     syncCamRows();
@@ -900,9 +908,10 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     const { W, H } = outSize(), f = fitBoard(W, H), gl = $('gl'), cv = $('cv');
     gl.style.width = f.cw + 'px'; gl.style.height = f.ch + 'px';
     cv.style.width = f.cw + 'px'; cv.style.height = f.ch + 'px';
-    try { gpu.render({ C: Comput, scene: VIS(), p, W, H, pw: f.pw, ph: f.ph }); } catch (e) { console.warn(e); gpu = null; return; }
+    const wire = ui.sceneView === 'wire';
+    try { gpu.render({ C: Comput, scene: VIS(), p, W, H, pw: f.pw, ph: f.ph, cw: f.cw, mode: wire ? 'wire' : 'render' }); } catch (e) { console.warn(e); gpu = null; return; }
     gl.classList.add('on'); cv.style.visibility = 'hidden';
-    $('boardTag').textContent = `${W} × ${H} PX · VIEW ${Math.round(f.vs * 100)}% · LIVE`;
+    $('boardTag').textContent = `${W} × ${H} PX · VIEW ${Math.round(f.vs * 100)}% · ${wire ? 'WIRE' : 'LIVE'}`;
     drawGizmo();
   }
   function requestGPU() { if (!gpuQueued) { gpuQueued = true; requestAnimationFrame(gpuFrame); } }
@@ -911,7 +920,8 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   function sceneTouched(live) {
     sceneVer++;
     if (MOT.frames || MOT.playing) { stopMotion(true); syncMotion(); }
-    if (gpuLive()) {
+    if (gpuLive() && ui.sceneView === 'wire') { requestGPU(); busy(false, 'Wire view'); clearTimeout(exactTimer); }
+    else if (gpuLive()) {
       requestGPU(); busy(false, 'Live preview');
       clearTimeout(exactTimer);
       const go = () => { if (held > 0 || gest) { exactTimer = setTimeout(go, 120); return; } run(false); };
@@ -922,6 +932,14 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
 
   // ================= 3D controls =================
   ui.tool = { mode: 'move', axis: 'free', ...(ui.tool || {}) };
+  ui.sceneView = ui.sceneView === 'wire' ? 'wire' : 'render';
+  function setSceneView(v) {
+    ui.sceneView = v; save();
+    $('sceneViewSeg').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === v));
+    if (v === 'wire') { clearTimeout(exactTimer); requestGPU(); busy(false, 'Wire view'); } else sceneTouched(false);
+  }
+  $('sceneViewSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setSceneView(b.dataset.v); });
+  $('sceneViewSeg').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === ui.sceneView));
   const view = $('view'), ov = $('ov');
   const AX = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
   const boardRect = () => $('gl').classList.contains('on') ? $('gl').getBoundingClientRect() : $('cv').getBoundingClientRect();
@@ -932,7 +950,47 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     const hit = Comput.pickShape(VIS(), W, H, m.x, m.y, 10 * m.k);
     return hit < 0 ? -1 : idx[hit];
   }
+  // ----- draw your own shape: click points on the artboard, the curve closes on the first point -----
+  let DRAW = null;
+  const NAV_HINT = $('navHint').textContent;
+  function setDrawHint() {
+    $('navHint').textContent = DRAW ? 'Drawing: click to add points. Click the first point or press Enter to finish. Backspace removes the last point, Esc cancels.' : NAV_HINT;
+    view.classList.toggle('drawing', !!DRAW);
+  }
+  function startDraw() {
+    if (SC().shapes.length >= 24) return toast('A scene can hold up to 24 layers');
+    DRAW = { pts: [] }; ui.sel = -1; syncScene(); setDrawHint(); drawGizmo();
+    toast('Click points on the artboard to draw a shape');
+  }
+  function cancelDraw() { DRAW = null; setDrawHint(); drawGizmo(); }
+  function finishDraw() {
+    const P = DRAW.pts; DRAW = null; setDrawHint();
+    if (P.length < 3) { toast('A shape needs at least 3 points'); drawGizmo(); return; }
+    const sc = SC(), { W, H } = outSize(), aspect = W / H, fr = Comput.framing(sc), { R, U, F } = Comput.camera(sc);
+    // artboard px -> the camera plane through the scene's centre
+    const uv = P.map(([x, y]) => [((x / W) * 2 - 1) * aspect / fr.zoom + fr.panX, (1 - (y / H) * 2) / fr.zoom + fr.panY]);
+    const xs = uv.map((q) => q[0]), ys = uv.map((q) => q[1]);
+    const cu = (Math.min(...xs) + Math.max(...xs)) / 2, cv = (Math.min(...ys) + Math.max(...ys)) / 2;
+    const ext = Math.max(0.02, (Math.max(...xs) - Math.min(...xs)) / 2, (Math.max(...ys) - Math.min(...ys)) / 2);
+    const pts = uv.map(([u, v]) => [Math.round(((u - cu) / ext) * 1000) / 1000, Math.round(((v - cv) / ext) * 1000) / 1000]);
+    // it faces the camera: its own x along the camera's right, y along its up, z towards you
+    const e = Comput.matToEuler([R[0], U[0], -F[0], R[1], U[1], -F[1], R[2], U[2], -F[2]]);
+    const n = sc.shapes.filter((x) => x.type === 'custom').length + 1;
+    sc.shapes.push({ type: 'custom', name: `Drawn ${n}`, pts, x: cu * R[0] + cv * U[0], y: cu * R[1] + cv * U[1], z: cu * R[2] + cv * U[2],
+      size: ext, q: 0.5, w: 1, h: 1, d: 1, round: 0.6, rx: e.rx, ry: e.ry, rz: e.rz });
+    ui.sel = sc.shapes.length - 1; changed('scene');
+  }
+  function drawDrawing() {
+    const { W, H } = outSize(), f = fitBoard(W, H), k = W / f.cw, P = DRAW.pts;
+    ov.setAttribute('viewBox', `0 0 ${W} ${H}`); ov.style.width = f.cw + 'px'; ov.style.height = f.ch + 'px';
+    let out = '';
+    if (P.length >= 3) out += `<path class="dpath" d="M${Comput.splinePoints(P, 10).map((q) => q.join(' ')).join('L')}Z"/>`;
+    else if (P.length === 2) out += `<path class="dpath" d="M${P[0].join(' ')}L${P[1].join(' ')}"/>`;
+    P.forEach((q, i) => { out += `<circle class="dp${i === 0 ? ' first' : ''}" cx="${q[0]}" cy="${q[1]}" r="${(i === 0 && P.length >= 3 ? 7 : 4) * k}"/>`; });
+    ov.innerHTML = out;
+  }
   function drawGizmo() {
+    if (DRAW && p.source === 'scene' && ui.mode === 'single') { drawDrawing(); return; }
     const sel = SEL(), show = p.source === 'scene' && ui.mode === 'single' && sel && !sel.hidden;
     if (!show) { ov.innerHTML = ''; return; }
     const { W, H } = outSize(), f = fitBoard(W, H), k = W / f.cw;
@@ -989,6 +1047,12 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   view.addEventListener('pointerdown', (e) => {
     if (p.source !== 'scene' || ui.mode !== 'single' || !SC().shapes) return;
     if (e.target.closest('button, input')) return;
+    if (DRAW && e.button === 0 && !e.shiftKey && !spaceDown) {
+      const m = toOut(e), P = DRAW.pts;
+      if (P.length >= 3 && Math.hypot(m.x - P[0][0], m.y - P[0][1]) < 12 * m.k) finishDraw();
+      else { P.push([Math.round(m.x * 10) / 10, Math.round(m.y * 10) / 10]); drawGizmo(); }
+      e.preventDefault(); return;
+    }
     try { view.setPointerCapture(e.pointerId); } catch (err) {}
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const m = toOut(e);
@@ -1060,9 +1124,16 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   document.addEventListener('keydown', (e) => {
     if (p.source !== 'scene' || ui.mode !== 'single' || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+    if (DRAW) {
+      if (e.key === 'Enter') finishDraw(); else if (e.key === 'Escape') cancelDraw();
+      else if (e.key === 'Backspace' || e.key === 'Delete') { DRAW.pts.pop(); drawGizmo(); }
+      else return;
+      e.preventDefault(); return;
+    }
     const k = e.key.toLowerCase();
     if (k === ' ') { spaceDown = true; return; }
-    if (k === 'g' || k === 'm') setTool('move'); else if (k === 'r') setTool('rotate'); else if (k === 's') setTool('scale');
+    if (k === 'w') setSceneView(ui.sceneView === 'wire' ? 'render' : 'wire');
+    else if (k === 'g' || k === 'm') setTool('move'); else if (k === 'r') setTool('rotate'); else if (k === 's') setTool('scale');
     else if (k === 'x' || k === 'y' || k === 'z') setTool(null, ui.tool.axis === k ? 'free' : k);
     else if (k === 'escape') { if (ui.tool.axis !== 'free') setTool(null, 'free'); else if (ui.sel !== -1) { ui.sel = -1; save(); syncScene(); drawGizmo(); } }
     else if (k === 'f' || k === 'home') resetView();
@@ -1212,6 +1283,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         reads(); busy(false, 'Add a shape to start'); return;
       }
       const live = gpuLive() && !draft;
+      if (live && ui.sceneView === 'wire') { requestGPU(); busy(false, 'Wire view'); return; }   // no exact render while in Wire
       if (live) requestGPU();
       const srcs = source();
       for (let i = 0; i < sizes.length; i++) {
@@ -1447,7 +1519,8 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   // those into its own shape settings, and back again when Claude edits an existing scene.
   const numIn = (v, a, b, d) => { v = +v; return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : d; };
   const MAXS = 24, R3 = (v) => Math.round(v * 1000) / 1000;
-  const TYPE_IN = { box: 'cube', cube: 'cube', sphere: 'sphere', ellipsoid: 'sphere', cylinder: 'cylinder', disc: 'cylinder', ring: 'ring', torus: 'ring', capsule: 'capsule', pill: 'capsule' };
+  const cleanPts = (a) => { const q = (Array.isArray(a) ? a : []).filter((v) => Array.isArray(v) && v.length === 2).slice(0, 64).map(([u, v]) => [numIn(u, -1.5, 1.5, 0), numIn(v, -1.5, 1.5, 0)]); return q.length >= 3 ? q : undefined; };
+  const TYPE_IN = { drawn: 'custom', custom: 'custom', box: 'cube', cube: 'cube', sphere: 'sphere', ellipsoid: 'sphere', cylinder: 'cylinder', disc: 'cylinder', ring: 'ring', torus: 'ring', capsule: 'capsule', pill: 'capsule' };
   function toWorld(sh) {
     const s0 = sh.size, q = sh.q ?? 0.5, w = sh.w ?? 1, h = sh.h ?? 1, d = sh.d ?? 1;
     const o = { name: sh.name, type: sh.type === 'cube' ? 'box' : sh.type, x: R3(sh.x), y: R3(sh.y), z: R3(sh.z) };
@@ -1455,6 +1528,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     else if (sh.type === 'cylinder') Object.assign(o, { radius: R3(0.8 * w * s0), height: R3(1.6 * (0.2 + 1.6 * q) * h * s0), round: R3(sh.round ?? 0.0625) });
     else if (sh.type === 'ring') Object.assign(o, { radius: R3(0.8 * w * s0), tube: R3((0.08 + 0.4 * q) * h * s0) });
     else if (sh.type === 'capsule') Object.assign(o, { radius: R3(0.42 * w * s0), length: R3(2 * (1.4 * q * h * s0 + 0.42 * w * s0)) });
+    else if (sh.type === 'custom') Object.assign(o, { type: 'drawn', width: R3(2 * w * s0), height: R3(2 * h * s0), depth: R3(0.5 * d * s0), inflate: R3(sh.round ?? 0.6), points: sh.pts });
     else Object.assign(o, { width: R3(2 * w * s0), height: R3(2 * h * s0), depth: R3(2 * d * s0) });
     Object.assign(o, { rx: Math.round(sh.rx || 0), ry: Math.round(sh.ry || 0), rz: Math.round(sh.rz || 0) });
     if (sh.cut) o.cut = true;
@@ -1466,7 +1540,9 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     const L = (v, d) => numIn(v, 0.004, 4, d);
     const sh = { type, x: numIn(x.x, -3, 3, 0), y: numIn(x.y, -2, 2, 0), z: numIn(x.z, -2, 2, 0), size: 1, q: 0.5,
       rx: numIn(x.rx, -180, 180, 0), ry: numIn(x.ry, -180, 180, 0), rz: numIn(x.rz, -180, 180, 0) };
-    if (type === 'cube') Object.assign(sh, { w: L(x.width, 0.5) / 1.6, h: L(x.height, 0.5) / 1.6, d: L(x.depth, 0.5) / 1.6, round: numIn(x.round, 0, 0.95, 0.15) });
+    if (type === 'custom') { const pts = cleanPts(x.points || x.pts); if (!pts) return null;
+      Object.assign(sh, { pts, w: L(x.width, 0.6) / 2, h: L(x.height, 0.6) / 2, d: L(x.depth, 0.15) / 0.5, round: numIn(x.inflate ?? x.round, 0, 1, 0.6) }); }
+    else if (type === 'cube') Object.assign(sh, { w: L(x.width, 0.5) / 1.6, h: L(x.height, 0.5) / 1.6, d: L(x.depth, 0.5) / 1.6, round: numIn(x.round, 0, 0.95, 0.15) });
     else if (type === 'cylinder') Object.assign(sh, { w: L(x.radius, 0.2) / 0.8, h: L(x.height, 0.3) / 1.6, round: numIn(x.round, 0, 0.95, 0.1) });
     else if (type === 'ring') Object.assign(sh, { w: L(x.radius, 0.3) / 0.8, h: L(x.tube, 0.06) / 0.28 });
     else if (type === 'capsule') { const r = L(x.radius, 0.1), len = Math.max(2 * r, L(x.length, 0.5)); Object.assign(sh, { w: r / 0.42, h: Math.max(0, len / 2 - r) / 0.7 }); }
@@ -1486,6 +1562,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
       for (const k of ['w', 'h', 'd']) if (x[k] != null) o[k] = numIn(x[k], 0.02, 4, 1);
       if (x.round != null) o.round = numIn(x.round, 0, 0.95, 0.1);
       if (x.cut) o.cut = true; if (x.hidden) o.hidden = true; if (x.name) o.name = String(x.name).slice(0, 24);
+      if (x.type === 'custom') o.pts = cleanPts(x.pts);
       return o;
     })).filter(Boolean).slice(0, MAXS);
     return { aspect: FRAMES.includes(d.aspect) ? d.aspect : '4:5', melt: numIn(d.melt, 0, 0.4, 0), ground: numIn(d.ground, 0, 1, 0.6),

@@ -817,7 +817,59 @@ const Comput = (() => {
     cylinder: { label: 'Cylinder', q: true, bound: 1.6 },
     ring: { label: 'Ring', q: true, bound: 1.4 },
     capsule: { label: 'Capsule', q: true, bound: 2.1 },
+    custom: { label: 'Drawn', q: false, bound: 1.5 },
   };
+
+  // ---------- drawn shapes ----------
+  // A closed outline drawn by the designer (points in its own plane, fitted to -1..1), smoothed
+  // into a curve, turned into a 2D distance field, then given depth: flat with crisp edges at
+  // Inflate 0, puffed up like a balloon as Inflate rises.
+  const DRAWN_GRID = 160, DRAWN_EXT = 1.25, DRAWN_SLOTS = 8;
+  // closed Catmull-Rom curve through the points
+  function splinePoints(pts, per = 14) {
+    const n = pts.length, out = [];
+    if (n < 3) return pts.slice();
+    for (let i = 0; i < n; i++) {
+      const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
+      for (let k = 0; k < per; k++) {
+        const t = k / per, t2 = t * t, t3 = t2 * t;
+        out.push([0, 1].map((c) => 0.5 * (2 * p1[c] + (-p0[c] + p2[c]) * t + (2 * p0[c] - 5 * p1[c] + 4 * p2[c] - p3[c]) * t2 + (-p0[c] + 3 * p1[c] - 3 * p2[c] + p3[c]) * t3)));
+      }
+    }
+    return out;
+  }
+  const _fields = new Map();
+  // signed distance field of the smoothed outline on a grid (row 0 = bottom); inr = deepest inside distance
+  function drawnField(pts) {
+    const key = JSON.stringify(pts);
+    if (_fields.has(key)) return _fields.get(key);
+    const poly = splinePoints(pts), n = poly.length, G = DRAWN_GRID, E = DRAWN_EXT, F = new Float32Array(G * G);
+    let inr = 0;
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) {
+      const x = -E + ((i + 0.5) / G) * 2 * E, y = -E + ((j + 0.5) / G) * 2 * E;
+      let d = Infinity, sgn = 1;
+      for (let a = 0, b = n - 1; a < n; b = a++) {
+        const ax = poly[a][0], ay = poly[a][1], ex = poly[b][0] - ax, ey = poly[b][1] - ay, wx = x - ax, wy = y - ay;
+        const t = Math.max(0, Math.min(1, (wx * ex + wy * ey) / (ex * ex + ey * ey || 1)));
+        const bx = wx - ex * t, by = wy - ey * t; d = Math.min(d, bx * bx + by * by);
+        const c1 = y >= ay, c2 = y < poly[b][1], c3 = ex * wy > ey * wx;
+        if ((c1 && c2 && c3) || (!c1 && !c2 && !c3)) sgn = -sgn;
+      }
+      const v = sgn * Math.sqrt(d); F[j * G + i] = v; if (-v > inr) inr = -v;
+    }
+    const sample = (x, y) => {
+      const cx = Math.max(-E, Math.min(E, x)), cy = Math.max(-E, Math.min(E, y)), out = Math.hypot(x - cx, y - cy);
+      const fx = ((cx + E) / (2 * E)) * G - 0.5, fy = ((cy + E) / (2 * E)) * G - 0.5;
+      const i0 = Math.max(0, Math.min(G - 2, Math.floor(fx))), j0 = Math.max(0, Math.min(G - 2, Math.floor(fy)));
+      const tx = Math.max(0, Math.min(1, fx - i0)), ty = Math.max(0, Math.min(1, fy - j0));
+      const v = (F[j0 * G + i0] * (1 - tx) + F[j0 * G + i0 + 1] * tx) * (1 - ty) + (F[(j0 + 1) * G + i0] * (1 - tx) + F[(j0 + 1) * G + i0 + 1] * tx) * ty;
+      return v + out;
+    };
+    const f = { key, grid: F, inr: Math.max(inr, 1e-3), sample };
+    _fields.set(key, f); while (_fields.size > 32) _fields.delete(_fields.keys().next().value);
+    return f;
+  }
+  const DEFAULT_DRAWN = [[0, 1], [0.95, 0.3], [0.6, -0.8], [-0.6, -0.8], [-0.95, 0.3]];
   // o: the shape itself; w, h, d stretch it along its own x, y, z (1 = as before), round is the
   // corner radius as a share of its thinnest half-size (cube and cylinder)
   const dims = (o) => ({ w: Math.max(0.02, o.w ?? 1), h: Math.max(0.02, o.h ?? 1), d: Math.max(0.02, o.d ?? 1) });
@@ -836,6 +888,16 @@ const Comput = (() => {
         return (x, y, z) => Math.hypot(Math.hypot(x, z) - R, y) - r; }
       case 'capsule': { const r = 0.42 * w, hh = 1.4 * q * h;
         return (x, y, z) => { const cy = y - Math.max(-hh, Math.min(hh, y)); return Math.hypot(x, cy, z) - r; }; }
+      case 'custom': {
+        // depth: half-thickness 0.25 x Depth; Inflate (round) sets how far in from the edge the full thickness is reached
+        const fld = drawnField(Array.isArray(o.pts) && o.pts.length >= 3 ? o.pts : DEFAULT_DRAWN), k = Math.min(w, h), hz = 0.25 * d;
+        const Rk = Math.max(0.02, Math.min(1, o.round ?? 0.6) * fld.inr);
+        return (x, y, z) => {
+          const s2 = fld.sample(x / w, y / h), d2 = s2 * k, t = 1 - Math.min(Math.max(0, -s2) / Rk, 1);
+          const prof = Math.sqrt(Math.max(0, 1 - t * t));
+          return Math.max(d2, (Math.abs(z) - hz * prof) * 0.6);
+        };
+      }
       default:
         if (w === 1 && h === 1 && d === 1) return (x, y, z) => Math.hypot(x, y, z) - 1;
         // ellipsoid (a close approximation of the distance, exact at the surface)
@@ -879,6 +941,7 @@ const Comput = (() => {
       case 'cylinder': return [0.8 * w, 0.8 * (0.2 + 1.6 * q) * h, 0.8 * w];
       case 'ring': { const r = (0.08 + 0.4 * q) * h; return [0.8 * w + r, r, 0.8 * w + r]; }
       case 'capsule': return [0.42 * w, 1.4 * q * h + 0.42 * w, 0.42 * w];
+      case 'custom': return [w * 1.05, h * 1.05, 0.25 * d];
       default: return [w, h, d];
     }
   }
@@ -1146,6 +1209,6 @@ const Comput = (() => {
       `<style>${css}</style>` + bgRect(p, V, VH) + groups + `</svg>`;
   }
 
-  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, coverage, pickShape, boundOf, knockout, camera, framing, projectPoint, groundY, rotMat, matToEuler, axisMat, matMul, logoDensity, shapeExtent, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
+  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, coverage, pickShape, boundOf, knockout, splinePoints, drawnField, DRAWN_GRID, DRAWN_EXT, DRAWN_SLOTS, camera, framing, projectPoint, groundY, rotMat, matToEuler, axisMat, matMul, logoDensity, shapeExtent, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
 })();
 if (typeof module !== 'undefined') module.exports = Comput;

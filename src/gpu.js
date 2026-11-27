@@ -20,11 +20,24 @@ in vec2 aP; void main(){ gl_Position = vec4(aP, 0., 1.); }`;
 precision highp float;
 uniform vec2 uRes; uniform float uAspect, uZoom; uniform vec2 uPan;
 uniform vec3 uF, uR, uU, uLW, uLC;
-uniform int uN; uniform vec4 uPS[${MAX}]; uniform vec4 uPT[${MAX}]; uniform vec4 uDM[${MAX}]; uniform mat3 uM[${MAX}];
+uniform int uN; uniform vec4 uPS[${MAX}]; uniform vec4 uPT[${MAX}]; uniform vec4 uDM[${MAX}]; uniform vec4 uCX[${MAX}]; uniform mat3 uM[${MAX}];
+uniform sampler2D uDrawn;
+const float DG = 160., DE = 1.25, DS = 8.;
+// a drawn outline's distance field, one slot of the atlas per drawn layer
+float drawnAt(float slot, vec2 l){
+  vec2 c = clamp(l, vec2(-DE), vec2(DE)); float o = length(l - c);
+  vec2 uv = clamp((c + DE) / (2. * DE), vec2(0.5 / DG), vec2(1. - 0.5 / DG));
+  return textureLod(uDrawn, vec2((slot + uv.x) / DS, uv.y), 0.).r + o;
+}
 uniform float uMelt, uGround, uGY, uSP, uRP, uInvert, uEdge; uniform vec4 uBS;
 out vec4 o;
-float sdShape(int t, float q, vec4 dm, vec3 p){
+float sdShape(int t, float q, vec4 dm, vec4 cx, vec3 p){
   float w = dm.x, h = dm.y, dd = dm.z, rd = dm.w;
+  if (t == 5) {
+    float s2 = drawnAt(cx.x, p.xy / vec2(w, h)), d2 = s2 * min(w, h);
+    float Rk = max(0.02, rd * cx.y), tt = 1. - min(max(0., -s2) / Rk, 1.), prof = sqrt(max(0., 1. - tt * tt));
+    return max(d2, (abs(p.z) - 0.25 * dd * prof) * 0.6);
+  }
   if (t == 1) { vec3 b = vec3(0.8 * w, 0.8 * (0.25 + 1.5 * q) * h, 0.8 * dd); float rr = min(b.x, min(b.y, b.z)) * rd; vec3 a = abs(p) - b + rr;
     return length(max(a, 0.)) + min(max(a.x, max(a.y, a.z)), 0.) - rr; }
   if (t == 2) { float r = 0.8 * w, hh = 0.8 * (0.2 + 1.6 * q) * h, rr = min(r, hh) * rd; vec2 d = vec2(length(p.xz) - r + rr, abs(p.y) - hh + rr);
@@ -40,7 +53,7 @@ float map(vec3 p){
   for (int i = 0; i < ${MAX}; i++) {
     if (i >= uN) break;
     vec3 l = (uM[i] * (p - uPS[i].xyz)) / uPS[i].w;
-    float e = sdShape(int(uPT[i].x), uPT[i].y, uDM[i], l) * uPS[i].w;
+    float e = sdShape(int(uPT[i].x), uPT[i].y, uDM[i], uCX[i], l) * uPS[i].w;
     if (uPT[i].z > 0.5) { d = max(d, -e); continue; }
     if (uMelt <= 1e-4) d = min(d, e);
     else { float h = clamp(0.5 + 0.5 * (e - d) / k, 0., 1.); d = mix(e, d, h) - k * h * (1. - h); }
@@ -98,6 +111,81 @@ void main(){
   o = vec4(0., 0.5, 0.5, 0.);
 }`;
 
+  // Wire view: the same shapes, but only which surface each pixel sees (normal, layer, floor grid),
+  // no shadows and no marks, so moving around stays instant. A second pass turns it into lines.
+  const FS_WIRE = FS_DENSITY.slice(0, FS_DENSITY.indexOf('void main(){')) + `
+int layerAt(vec3 p){
+  float best = 1e9; int bi = 0;
+  for (int i = 0; i < ${MAX}; i++) {
+    if (i >= uN) break;
+    if (uPT[i].z > 0.5) continue;
+    vec3 l = (uM[i] * (p - uPS[i].xyz)) / uPS[i].w;
+    float e = sdShape(int(uPT[i].x), uPT[i].y, uDM[i], uCX[i], l) * uPS[i].w;
+    if (e < best) { best = e; bi = i; }
+  }
+  return bi;
+}
+void main(){
+  float i = gl_FragCoord.x, j = uRes.y - gl_FragCoord.y;
+  float u = (i / uRes.x * 2. - 1.) * uAspect / uZoom + uPan.x;
+  float v = (1. - j / uRes.y * 2.) / uZoom + uPan.y;
+  vec3 ro = u * uR + v * uU - uF * 6.;
+  vec3 c = ro - uBS.xyz; float b = dot(c, uF), cc = dot(c, c) - uBS.w * uBS.w, disc = b * b - cc;
+  if (uN > 0 && disc >= 0.) {
+    float t = max(0., -b - sqrt(disc)), tEnd = -b + sqrt(disc); bool hit = false;
+    for (int it = 0; it < 96; it++) {
+      if (t >= tEnd) break;
+      float d = map(ro + uF * t);
+      if (d < 0.0008) { hit = true; break; }
+      t += d * 0.9;
+    }
+    if (hit) {
+      vec3 x = ro + uF * t; float e = 0.0015;
+      vec3 n = normalize(vec3(map(x + vec3(e,0,0)) - map(x - vec3(e,0,0)), map(x + vec3(0,e,0)) - map(x - vec3(0,e,0)), map(x + vec3(0,0,e)) - map(x - vec3(0,0,e))));
+      vec3 nc = vec3(dot(n, uR), dot(n, uU), -dot(n, uF));
+      o = vec4(nc.xy * 0.5 + 0.5, (float(layerAt(x)) + 0.5) / 32., 1.);
+      return;
+    }
+  }
+  // the floor: a grid on the ground plane, fading with distance
+  if (uF.y < -1e-3) {
+    float t = (uGY - ro.y) / uF.y;
+    if (t > 0.) {
+      vec2 g = (ro + uF * t).xz * 4.;
+      vec2 gd = abs(fract(g + 0.5) - 0.5) / max(fwidth(g), vec2(1e-4));
+      float line = 1. - min(min(gd.x, gd.y), 1.);
+      float fade = clamp(1. - length((ro + uF * t).xz - uBS.xz) / (uBS.w * 3. + 1.), 0., 1.);
+      o = vec4(0.5, 0.5, 0., 0.45 * line * fade);
+      return;
+    }
+  }
+  o = vec4(0.5, 0.5, 0., 0.);
+}`;
+  const FS_EDGES = `#version 300 es
+precision highp float;
+uniform sampler2D uW; uniform vec3 uLC; uniform float uLine;
+out vec4 o;
+vec3 nrm(vec4 a){ vec2 xy = a.xy * 2. - 1.; return vec3(xy, sqrt(max(0., 1. - dot(xy, xy)))); }
+void main(){
+  ivec2 c = ivec2(gl_FragCoord.xy), sz = textureSize(uW, 0);
+  vec4 a = texelFetch(uW, c, 0); bool obj = a.a > 0.75;
+  float e = 0.;
+  for (int k = 0; k < 4; k++) {
+    ivec2 off = k == 0 ? ivec2(1, 0) : k == 1 ? ivec2(-1, 0) : k == 2 ? ivec2(0, 1) : ivec2(0, -1);
+    ivec2 q = clamp(c + off * int(uLine), ivec2(0), sz - 1);
+    vec4 bq = texelFetch(uW, q, 0); bool ob = bq.a > 0.75;
+    if (obj != ob) e = 1.;                                                         // outline
+    else if (obj) {
+      if (abs(a.b - bq.b) > 0.01) e = 1.;                                          // where one layer meets another
+      else if (dot(nrm(a), nrm(bq)) < 0.92) e = max(e, 0.75);                      // creases and rims
+    }
+  }
+  float A;
+  if (obj) { float lit = clamp(dot(nrm(a), normalize(uLC)), 0., 1.); A = max(e, 0.05 + 0.13 * (1. - lit)); }
+  else A = max(e, a.a);
+  vec3 ink = vec3(0.071, 0.075, 0.071);
+  o = vec4(ink * A, A);
+}`;
   const VS_MARKS = `#version 300 es
 precision highp float; precision highp int;
 uniform highp sampler2D uTile; uniform int uTileN, uTilesX;
@@ -184,13 +272,15 @@ void main(){
     if (!gl) return null;
     const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
     const prog = (vs, fs) => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; };
-    let P1, P2;
-    try { P1 = prog(VS_FULL, FS_DENSITY); P2 = prog(VS_MARKS, FS_MARKS); } catch (e) { console.warn('Comput GPU preview off:', e.message); return null; }
+    let P1, P2, P3, P4;
+    try { P1 = prog(VS_FULL, FS_DENSITY); P2 = prog(VS_MARKS, FS_MARKS); P3 = prog(VS_FULL, FS_WIRE); P4 = prog(VS_FULL, FS_EDGES); } catch (e) { console.warn('Comput GPU preview off:', e.message); return null; }
     const U = (p, n) => gl.getUniformLocation(p, n);
     const tri = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, tri); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     const quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     const vao1 = gl.createVertexArray(); gl.bindVertexArray(vao1); gl.bindBuffer(gl.ARRAY_BUFFER, tri);
     const l1 = gl.getAttribLocation(P1, 'aP'); gl.enableVertexAttribArray(l1); gl.vertexAttribPointer(l1, 2, gl.FLOAT, false, 0, 0);
+    const vaoFor = (P) => { const v = gl.createVertexArray(); gl.bindVertexArray(v); gl.bindBuffer(gl.ARRAY_BUFFER, tri); const l = gl.getAttribLocation(P, 'aP'); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 2, gl.FLOAT, false, 0, 0); return v; };
+    const vao3 = vaoFor(P3), vao4 = vaoFor(P4);
     const vao2 = gl.createVertexArray(); gl.bindVertexArray(vao2); gl.bindBuffer(gl.ARRAY_BUFFER, quad);
     const l2 = gl.getAttribLocation(P2, 'aC'); gl.enableVertexAttribArray(l2); gl.vertexAttribPointer(l2, 2, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
@@ -207,42 +297,82 @@ void main(){
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, denTex, 0);
     };
+    const wireTex = gl.createTexture(), wireFbo = gl.createFramebuffer(); let ww = 0, wh = 0;
+    const sizeWire = (w, h) => {
+      if (w === ww && h === wh) return; ww = w; wh = h;
+      gl.bindTexture(gl.TEXTURE_2D, wireTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, wireFbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, wireTex, 0);
+    };
     const hex = (h) => { h = h.length === 4 ? '#' + [...h.slice(1)].map((c) => c + c).join('') : h; const n = parseInt(h.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
-    const TYPES = { sphere: 0, cube: 1, cylinder: 2, ring: 3, capsule: 4 };
+    const TYPES = { sphere: 0, cube: 1, cylinder: 2, ring: 3, capsule: 4, custom: 5 };
+    // atlas of drawn outlines' distance fields: 8 slots of 160 x 160, half floats (filterable)
+    const drawnTex = gl.createTexture(); let drawnKey = '';
+    gl.bindTexture(gl.TEXTURE_2D, drawnTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, 160 * 8, 160, 0, gl.RED, gl.FLOAT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    function uploadDrawn(C, fields) {
+      const key = fields.map((f) => f.key).join('#'); if (key === drawnKey) return; drawnKey = key;
+      const G = C.DRAWN_GRID, W = G * C.DRAWN_SLOTS, data = new Float32Array(W * G);
+      fields.forEach((f, slot) => { for (let j = 0; j < G; j++) data.set(f.grid.subarray(j * G, j * G + G), j * W + slot * G); });
+      gl.bindTexture(gl.TEXTURE_2D, drawnTex); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, G, gl.RED, gl.FLOAT, data);
+    }
 
     // st: { C (engine), scene, p, W, H (output px), pw, ph (canvas px) }
     function render(st) {
       const { C, scene, p, W, H } = st, aspect = W / H;
       if (canvas.width !== st.pw || canvas.height !== st.ph) { canvas.width = st.pw; canvas.height = st.ph; }
-      const shapes = (scene.shapes || []).slice(0, MAX);
-      // ---- pass 1: density ----
-      const long = Math.min(560, Math.max(st.pw, st.ph)), rw = aspect >= 1 ? long : Math.round(long * aspect), rh = Math.max(1, Math.round(rw / aspect));
-      sizeDensity(rw, rh);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, rw, rh); gl.disable(gl.BLEND);
-      gl.clearColor(0, 0.5, 0.5, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-      if (shapes.length) {
-        gl.useProgram(P1);
+      const shapes = (scene.shapes || []).slice(0, MAX), wire = st.mode === 'wire';
+      // ---- pass 1: density (rendered) or surfaces (wire, at full canvas size for crisp lines) ----
+      let rw, rh;
+      if (wire) { rw = st.pw; rh = st.ph; sizeWire(rw, rh); gl.bindFramebuffer(gl.FRAMEBUFFER, wireFbo); gl.clearColor(0.5, 0.5, 0, 0); }
+      else {
+        const long = Math.min(560, Math.max(st.pw, st.ph)); rw = aspect >= 1 ? long : Math.round(long * aspect); rh = Math.max(1, Math.round(rw / aspect));
+        sizeDensity(rw, rh); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.clearColor(0, 0.5, 0.5, 0);
+      }
+      gl.viewport(0, 0, rw, rh); gl.disable(gl.BLEND); gl.clear(gl.COLOR_BUFFER_BIT);
+      const P1x = wire ? P3 : P1;
+      if (shapes.length || wire) {
+        gl.useProgram(P1x);
         const { F, R, U: Up } = C.camera(scene), { zoom, panX, panY } = C.framing(scene);
         let L0 = p.iLightX, L1 = p.iLightY, L2 = 1; const ll = Math.hypot(L0, L1, L2); L0 /= ll; L1 /= ll; L2 /= ll;
         const LW = [L0 * R[0] + L1 * Up[0] - L2 * F[0], L0 * R[1] + L1 * Up[1] - L2 * F[1], L0 * R[2] + L1 * Up[2] - L2 * F[2]];
-        const PS = new Float32Array(MAX * 4), PT = new Float32Array(MAX * 4), DM = new Float32Array(MAX * 4), M = new Float32Array(MAX * 9);
+        const PS = new Float32Array(MAX * 4), PT = new Float32Array(MAX * 4), DM = new Float32Array(MAX * 4), CX = new Float32Array(MAX * 4), M = new Float32Array(MAX * 9);
+        const fields = [];
         const solid = shapes.filter((s) => !s.cut), sl = solid.length || 1;
         let bx = 0, by = 0, bz = 0; solid.forEach((s) => { bx += s.x; by += s.y; bz += s.z; }); bx /= sl; by /= sl; bz /= sl;
         let br = 0; const k = Math.max(1e-4, scene.melt || 0);
-        const defRound = { cube: 0.0875, cylinder: 0.0625 };
+        const defRound = { cube: 0.0875, cylinder: 0.0625, custom: 0.6 };
         shapes.forEach((s, i) => {
           PS.set([s.x, s.y, s.z, s.size], 4 * i); PT.set([TYPES[s.type] ?? 0, s.q ?? 0.5, s.cut ? 1 : 0, 0], 4 * i);
           DM.set([Math.max(0.02, s.w ?? 1), Math.max(0.02, s.h ?? 1), Math.max(0.02, s.d ?? 1), Math.min(0.95, Math.max(0, s.round ?? defRound[s.type] ?? 0))], 4 * i);
           M.set(C.rotMat(s.rx || 0, s.ry || 0, s.rz || 0), 9 * i);   // row-major upload = transpose = the inverse rotation
+          if (s.type === 'custom' && fields.length < C.DRAWN_SLOTS) {
+            const f = C.drawnField(Array.isArray(s.pts) && s.pts.length >= 3 ? s.pts : [[0, 1], [0.95, 0.3], [0.6, -0.8], [-0.6, -0.8], [-0.95, 0.3]]);
+            CX.set([fields.length, f.inr, 0, 0], 4 * i); fields.push(f);
+          }
           if (!s.cut) br = Math.max(br, Math.hypot(s.x - bx, s.y - by, s.z - bz) + C.boundOf(s) + k);
         });
-        gl.uniform2f(U(P1, 'uRes'), rw, rh); gl.uniform1f(U(P1, 'uAspect'), aspect); gl.uniform1f(U(P1, 'uZoom'), zoom); gl.uniform2f(U(P1, 'uPan'), panX, panY);
-        gl.uniform3fv(U(P1, 'uF'), F); gl.uniform3fv(U(P1, 'uR'), R); gl.uniform3fv(U(P1, 'uU'), Up); gl.uniform3fv(U(P1, 'uLW'), LW); gl.uniform3f(U(P1, 'uLC'), L0, L1, L2);
-        gl.uniform1i(U(P1, 'uN'), shapes.length); gl.uniform4fv(U(P1, 'uPS'), PS); gl.uniform4fv(U(P1, 'uPT'), PT); gl.uniform4fv(U(P1, 'uDM'), DM); gl.uniformMatrix3fv(U(P1, 'uM'), false, M);
-        gl.uniform1f(U(P1, 'uMelt'), scene.melt || 0); gl.uniform1f(U(P1, 'uGround'), scene.ground ?? 0.6); gl.uniform1f(U(P1, 'uGY'), C.groundY(scene) - 0.004);
-        gl.uniform1f(U(P1, 'uSP'), p.iShadowPacking); gl.uniform1f(U(P1, 'uRP'), p.iRimPacking); gl.uniform1f(U(P1, 'uInvert'), p.imgInvert ? 1 : 0); gl.uniform1f(U(P1, 'uEdge'), p.imgEdge);
-        gl.uniform4f(U(P1, 'uBS'), bx, by, bz, br);
-        gl.bindVertexArray(vao1); gl.drawArrays(gl.TRIANGLES, 0, 3);
+        gl.uniform2f(U(P1x, 'uRes'), rw, rh); gl.uniform1f(U(P1x, 'uAspect'), aspect); gl.uniform1f(U(P1x, 'uZoom'), zoom); gl.uniform2f(U(P1x, 'uPan'), panX, panY);
+        gl.uniform3fv(U(P1x, 'uF'), F); gl.uniform3fv(U(P1x, 'uR'), R); gl.uniform3fv(U(P1x, 'uU'), Up); gl.uniform3fv(U(P1x, 'uLW'), LW); gl.uniform3f(U(P1x, 'uLC'), L0, L1, L2);
+        gl.uniform1i(U(P1x, 'uN'), shapes.length); gl.uniform4fv(U(P1x, 'uPS'), PS); gl.uniform4fv(U(P1x, 'uPT'), PT); gl.uniform4fv(U(P1x, 'uDM'), DM); gl.uniform4fv(U(P1x, 'uCX'), CX);
+        uploadDrawn(C, fields); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, drawnTex); gl.uniform1i(U(P1x, 'uDrawn'), 2); gl.uniformMatrix3fv(U(P1x, 'uM'), false, M);
+        gl.uniform1f(U(P1x, 'uMelt'), scene.melt || 0); gl.uniform1f(U(P1x, 'uGround'), scene.ground ?? 0.6); const gy = C.groundY(scene); gl.uniform1f(U(P1x, 'uGY'), (Number.isFinite(gy) ? gy : -0.6) - 0.004);
+        gl.uniform1f(U(P1x, 'uSP'), p.iShadowPacking); gl.uniform1f(U(P1x, 'uRP'), p.iRimPacking); gl.uniform1f(U(P1x, 'uInvert'), p.imgInvert ? 1 : 0); gl.uniform1f(U(P1x, 'uEdge'), p.imgEdge);
+        gl.uniform4f(U(P1x, 'uBS'), bx, by, bz, br);
+        gl.bindVertexArray(wire ? vao3 : vao1); gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+      if (wire) {
+        // ---- pass 2 (wire): outlines, creases and a faint shade, over the board ----
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, st.pw, st.ph);
+        gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.useProgram(P4);
+        gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, wireTex); gl.uniform1i(U(P4, 'uW'), 3);
+        let L0 = p.iLightX, L1 = p.iLightY; gl.uniform3f(U(P4, 'uLC'), L0, L1, 1);
+        gl.uniform1f(U(P4, 'uLine'), Math.max(1, Math.round(st.pw / Math.max(1, st.cw || st.pw))));
+        gl.bindVertexArray(vao4); gl.drawArrays(gl.TRIANGLES, 0, 3); gl.bindVertexArray(null);
+        return;
       }
       // ---- pass 2: marks ----
       gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, st.pw, st.ph);

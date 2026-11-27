@@ -157,6 +157,10 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
 #ov .ring.solid { stroke-dasharray: none }
 #ov text { font: 600 10px var(--font); fill: #121312; paint-order: stroke; stroke: #f4f5f2; stroke-width: 3px; letter-spacing: .06em }
 .view.scene { touch-action: none; cursor: grab } .view.scene.grabbing { cursor: grabbing }
+.view.scene.drawing, .view.scene.drawing canvas { cursor: crosshair }
+#ov .dp { fill: #121312; stroke: #f4f5f2; stroke-width: 1.5; vector-effect: non-scaling-stroke }
+#ov .dp.first { fill: #f4f5f2; stroke: #121312 }
+#ov .dpath { fill: rgba(18, 19, 18, .06); stroke: #121312; stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-dasharray: 5 4 }
 .kbd { font-size: 11px; color: var(--mute) }
 .board .tag { position: absolute; left: 0; top: -18px; font-size: 10px; letter-spacing: .08em; color: var(--mute); white-space: nowrap }
 .view.one .board { margin: auto }
@@ -370,6 +374,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         <button class="btn sm" id="motGo">Render</button>
       </div>
       <div class="rsp-ctl" id="sceneBar" hidden>
+        <div class="seg" id="sceneViewSeg" role="group" aria-label="View" style="min-width:150px"><button data-v="wire" aria-pressed="false" title="Outlines only, fastest for moving around and drawing (W)">Wire</button><button data-v="render" aria-pressed="true" title="The 0s and 1s as they will export (W)">Rendered</button></div>
         <div class="seg" id="toolSeg" role="group" aria-label="Tool"><button data-v="move" aria-pressed="true" title="Move (G)">Move</button><button data-v="rotate" aria-pressed="false" title="Rotate (R)">Rotate</button><button data-v="scale" aria-pressed="false" title="Scale (S)">Scale</button></div>
         <div class="seg" id="axisSeg" role="group" aria-label="Axis" style="min-width:150px"><button data-v="free" aria-pressed="true" title="Free (Esc)">Free</button><button data-v="x" aria-pressed="false" title="X axis (X)">X</button><button data-v="y" aria-pressed="false" title="Y axis (Y)">Y</button><button data-v="z" aria-pressed="false" title="Z axis (Z)">Z</button></div>
         <button class="btn ghost sm" id="resetView" title="Reset view (F)">Reset view</button>
@@ -1224,7 +1229,59 @@ const Comput = (() => {
     cylinder: { label: 'Cylinder', q: true, bound: 1.6 },
     ring: { label: 'Ring', q: true, bound: 1.4 },
     capsule: { label: 'Capsule', q: true, bound: 2.1 },
+    custom: { label: 'Drawn', q: false, bound: 1.5 },
   };
+
+  // ---------- drawn shapes ----------
+  // A closed outline drawn by the designer (points in its own plane, fitted to -1..1), smoothed
+  // into a curve, turned into a 2D distance field, then given depth: flat with crisp edges at
+  // Inflate 0, puffed up like a balloon as Inflate rises.
+  const DRAWN_GRID = 160, DRAWN_EXT = 1.25, DRAWN_SLOTS = 8;
+  // closed Catmull-Rom curve through the points
+  function splinePoints(pts, per = 14) {
+    const n = pts.length, out = [];
+    if (n < 3) return pts.slice();
+    for (let i = 0; i < n; i++) {
+      const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
+      for (let k = 0; k < per; k++) {
+        const t = k / per, t2 = t * t, t3 = t2 * t;
+        out.push([0, 1].map((c) => 0.5 * (2 * p1[c] + (-p0[c] + p2[c]) * t + (2 * p0[c] - 5 * p1[c] + 4 * p2[c] - p3[c]) * t2 + (-p0[c] + 3 * p1[c] - 3 * p2[c] + p3[c]) * t3)));
+      }
+    }
+    return out;
+  }
+  const _fields = new Map();
+  // signed distance field of the smoothed outline on a grid (row 0 = bottom); inr = deepest inside distance
+  function drawnField(pts) {
+    const key = JSON.stringify(pts);
+    if (_fields.has(key)) return _fields.get(key);
+    const poly = splinePoints(pts), n = poly.length, G = DRAWN_GRID, E = DRAWN_EXT, F = new Float32Array(G * G);
+    let inr = 0;
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) {
+      const x = -E + ((i + 0.5) / G) * 2 * E, y = -E + ((j + 0.5) / G) * 2 * E;
+      let d = Infinity, sgn = 1;
+      for (let a = 0, b = n - 1; a < n; b = a++) {
+        const ax = poly[a][0], ay = poly[a][1], ex = poly[b][0] - ax, ey = poly[b][1] - ay, wx = x - ax, wy = y - ay;
+        const t = Math.max(0, Math.min(1, (wx * ex + wy * ey) / (ex * ex + ey * ey || 1)));
+        const bx = wx - ex * t, by = wy - ey * t; d = Math.min(d, bx * bx + by * by);
+        const c1 = y >= ay, c2 = y < poly[b][1], c3 = ex * wy > ey * wx;
+        if ((c1 && c2 && c3) || (!c1 && !c2 && !c3)) sgn = -sgn;
+      }
+      const v = sgn * Math.sqrt(d); F[j * G + i] = v; if (-v > inr) inr = -v;
+    }
+    const sample = (x, y) => {
+      const cx = Math.max(-E, Math.min(E, x)), cy = Math.max(-E, Math.min(E, y)), out = Math.hypot(x - cx, y - cy);
+      const fx = ((cx + E) / (2 * E)) * G - 0.5, fy = ((cy + E) / (2 * E)) * G - 0.5;
+      const i0 = Math.max(0, Math.min(G - 2, Math.floor(fx))), j0 = Math.max(0, Math.min(G - 2, Math.floor(fy)));
+      const tx = Math.max(0, Math.min(1, fx - i0)), ty = Math.max(0, Math.min(1, fy - j0));
+      const v = (F[j0 * G + i0] * (1 - tx) + F[j0 * G + i0 + 1] * tx) * (1 - ty) + (F[(j0 + 1) * G + i0] * (1 - tx) + F[(j0 + 1) * G + i0 + 1] * tx) * ty;
+      return v + out;
+    };
+    const f = { key, grid: F, inr: Math.max(inr, 1e-3), sample };
+    _fields.set(key, f); while (_fields.size > 32) _fields.delete(_fields.keys().next().value);
+    return f;
+  }
+  const DEFAULT_DRAWN = [[0, 1], [0.95, 0.3], [0.6, -0.8], [-0.6, -0.8], [-0.95, 0.3]];
   // o: the shape itself; w, h, d stretch it along its own x, y, z (1 = as before), round is the
   // corner radius as a share of its thinnest half-size (cube and cylinder)
   const dims = (o) => ({ w: Math.max(0.02, o.w ?? 1), h: Math.max(0.02, o.h ?? 1), d: Math.max(0.02, o.d ?? 1) });
@@ -1243,6 +1300,16 @@ const Comput = (() => {
         return (x, y, z) => Math.hypot(Math.hypot(x, z) - R, y) - r; }
       case 'capsule': { const r = 0.42 * w, hh = 1.4 * q * h;
         return (x, y, z) => { const cy = y - Math.max(-hh, Math.min(hh, y)); return Math.hypot(x, cy, z) - r; }; }
+      case 'custom': {
+        // depth: half-thickness 0.25 x Depth; Inflate (round) sets how far in from the edge the full thickness is reached
+        const fld = drawnField(Array.isArray(o.pts) && o.pts.length >= 3 ? o.pts : DEFAULT_DRAWN), k = Math.min(w, h), hz = 0.25 * d;
+        const Rk = Math.max(0.02, Math.min(1, o.round ?? 0.6) * fld.inr);
+        return (x, y, z) => {
+          const s2 = fld.sample(x / w, y / h), d2 = s2 * k, t = 1 - Math.min(Math.max(0, -s2) / Rk, 1);
+          const prof = Math.sqrt(Math.max(0, 1 - t * t));
+          return Math.max(d2, (Math.abs(z) - hz * prof) * 0.6);
+        };
+      }
       default:
         if (w === 1 && h === 1 && d === 1) return (x, y, z) => Math.hypot(x, y, z) - 1;
         // ellipsoid (a close approximation of the distance, exact at the surface)
@@ -1286,6 +1353,7 @@ const Comput = (() => {
       case 'cylinder': return [0.8 * w, 0.8 * (0.2 + 1.6 * q) * h, 0.8 * w];
       case 'ring': { const r = (0.08 + 0.4 * q) * h; return [0.8 * w + r, r, 0.8 * w + r]; }
       case 'capsule': return [0.42 * w, 1.4 * q * h + 0.42 * w, 0.42 * w];
+      case 'custom': return [w * 1.05, h * 1.05, 0.25 * d];
       default: return [w, h, d];
     }
   }
@@ -1553,7 +1621,7 @@ const Comput = (() => {
       `<style>${css}</style>` + bgRect(p, V, VH) + groups + `</svg>`;
   }
 
-  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, coverage, pickShape, boundOf, knockout, camera, framing, projectPoint, groundY, rotMat, matToEuler, axisMat, matMul, logoDensity, shapeExtent, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
+  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, coverage, pickShape, boundOf, knockout, splinePoints, drawnField, DRAWN_GRID, DRAWN_EXT, DRAWN_SLOTS, camera, framing, projectPoint, groundY, rotMat, matToEuler, axisMat, matMul, logoDensity, shapeExtent, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
 })();
 if (typeof module !== 'undefined') module.exports = Comput;
 
@@ -1625,11 +1693,24 @@ in vec2 aP; void main(){ gl_Position = vec4(aP, 0., 1.); }`;
 precision highp float;
 uniform vec2 uRes; uniform float uAspect, uZoom; uniform vec2 uPan;
 uniform vec3 uF, uR, uU, uLW, uLC;
-uniform int uN; uniform vec4 uPS[${MAX}]; uniform vec4 uPT[${MAX}]; uniform vec4 uDM[${MAX}]; uniform mat3 uM[${MAX}];
+uniform int uN; uniform vec4 uPS[${MAX}]; uniform vec4 uPT[${MAX}]; uniform vec4 uDM[${MAX}]; uniform vec4 uCX[${MAX}]; uniform mat3 uM[${MAX}];
+uniform sampler2D uDrawn;
+const float DG = 160., DE = 1.25, DS = 8.;
+// a drawn outline's distance field, one slot of the atlas per drawn layer
+float drawnAt(float slot, vec2 l){
+  vec2 c = clamp(l, vec2(-DE), vec2(DE)); float o = length(l - c);
+  vec2 uv = clamp((c + DE) / (2. * DE), vec2(0.5 / DG), vec2(1. - 0.5 / DG));
+  return textureLod(uDrawn, vec2((slot + uv.x) / DS, uv.y), 0.).r + o;
+}
 uniform float uMelt, uGround, uGY, uSP, uRP, uInvert, uEdge; uniform vec4 uBS;
 out vec4 o;
-float sdShape(int t, float q, vec4 dm, vec3 p){
+float sdShape(int t, float q, vec4 dm, vec4 cx, vec3 p){
   float w = dm.x, h = dm.y, dd = dm.z, rd = dm.w;
+  if (t == 5) {
+    float s2 = drawnAt(cx.x, p.xy / vec2(w, h)), d2 = s2 * min(w, h);
+    float Rk = max(0.02, rd * cx.y), tt = 1. - min(max(0., -s2) / Rk, 1.), prof = sqrt(max(0., 1. - tt * tt));
+    return max(d2, (abs(p.z) - 0.25 * dd * prof) * 0.6);
+  }
   if (t == 1) { vec3 b = vec3(0.8 * w, 0.8 * (0.25 + 1.5 * q) * h, 0.8 * dd); float rr = min(b.x, min(b.y, b.z)) * rd; vec3 a = abs(p) - b + rr;
     return length(max(a, 0.)) + min(max(a.x, max(a.y, a.z)), 0.) - rr; }
   if (t == 2) { float r = 0.8 * w, hh = 0.8 * (0.2 + 1.6 * q) * h, rr = min(r, hh) * rd; vec2 d = vec2(length(p.xz) - r + rr, abs(p.y) - hh + rr);
@@ -1645,7 +1726,7 @@ float map(vec3 p){
   for (int i = 0; i < ${MAX}; i++) {
     if (i >= uN) break;
     vec3 l = (uM[i] * (p - uPS[i].xyz)) / uPS[i].w;
-    float e = sdShape(int(uPT[i].x), uPT[i].y, uDM[i], l) * uPS[i].w;
+    float e = sdShape(int(uPT[i].x), uPT[i].y, uDM[i], uCX[i], l) * uPS[i].w;
     if (uPT[i].z > 0.5) { d = max(d, -e); continue; }
     if (uMelt <= 1e-4) d = min(d, e);
     else { float h = clamp(0.5 + 0.5 * (e - d) / k, 0., 1.); d = mix(e, d, h) - k * h * (1. - h); }
@@ -1703,6 +1784,81 @@ void main(){
   o = vec4(0., 0.5, 0.5, 0.);
 }`;
 
+  // Wire view: the same shapes, but only which surface each pixel sees (normal, layer, floor grid),
+  // no shadows and no marks, so moving around stays instant. A second pass turns it into lines.
+  const FS_WIRE = FS_DENSITY.slice(0, FS_DENSITY.indexOf('void main(){')) + `
+int layerAt(vec3 p){
+  float best = 1e9; int bi = 0;
+  for (int i = 0; i < ${MAX}; i++) {
+    if (i >= uN) break;
+    if (uPT[i].z > 0.5) continue;
+    vec3 l = (uM[i] * (p - uPS[i].xyz)) / uPS[i].w;
+    float e = sdShape(int(uPT[i].x), uPT[i].y, uDM[i], uCX[i], l) * uPS[i].w;
+    if (e < best) { best = e; bi = i; }
+  }
+  return bi;
+}
+void main(){
+  float i = gl_FragCoord.x, j = uRes.y - gl_FragCoord.y;
+  float u = (i / uRes.x * 2. - 1.) * uAspect / uZoom + uPan.x;
+  float v = (1. - j / uRes.y * 2.) / uZoom + uPan.y;
+  vec3 ro = u * uR + v * uU - uF * 6.;
+  vec3 c = ro - uBS.xyz; float b = dot(c, uF), cc = dot(c, c) - uBS.w * uBS.w, disc = b * b - cc;
+  if (uN > 0 && disc >= 0.) {
+    float t = max(0., -b - sqrt(disc)), tEnd = -b + sqrt(disc); bool hit = false;
+    for (int it = 0; it < 96; it++) {
+      if (t >= tEnd) break;
+      float d = map(ro + uF * t);
+      if (d < 0.0008) { hit = true; break; }
+      t += d * 0.9;
+    }
+    if (hit) {
+      vec3 x = ro + uF * t; float e = 0.0015;
+      vec3 n = normalize(vec3(map(x + vec3(e,0,0)) - map(x - vec3(e,0,0)), map(x + vec3(0,e,0)) - map(x - vec3(0,e,0)), map(x + vec3(0,0,e)) - map(x - vec3(0,0,e))));
+      vec3 nc = vec3(dot(n, uR), dot(n, uU), -dot(n, uF));
+      o = vec4(nc.xy * 0.5 + 0.5, (float(layerAt(x)) + 0.5) / 32., 1.);
+      return;
+    }
+  }
+  // the floor: a grid on the ground plane, fading with distance
+  if (uF.y < -1e-3) {
+    float t = (uGY - ro.y) / uF.y;
+    if (t > 0.) {
+      vec2 g = (ro + uF * t).xz * 4.;
+      vec2 gd = abs(fract(g + 0.5) - 0.5) / max(fwidth(g), vec2(1e-4));
+      float line = 1. - min(min(gd.x, gd.y), 1.);
+      float fade = clamp(1. - length((ro + uF * t).xz - uBS.xz) / (uBS.w * 3. + 1.), 0., 1.);
+      o = vec4(0.5, 0.5, 0., 0.45 * line * fade);
+      return;
+    }
+  }
+  o = vec4(0.5, 0.5, 0., 0.);
+}`;
+  const FS_EDGES = `#version 300 es
+precision highp float;
+uniform sampler2D uW; uniform vec3 uLC; uniform float uLine;
+out vec4 o;
+vec3 nrm(vec4 a){ vec2 xy = a.xy * 2. - 1.; return vec3(xy, sqrt(max(0., 1. - dot(xy, xy)))); }
+void main(){
+  ivec2 c = ivec2(gl_FragCoord.xy), sz = textureSize(uW, 0);
+  vec4 a = texelFetch(uW, c, 0); bool obj = a.a > 0.75;
+  float e = 0.;
+  for (int k = 0; k < 4; k++) {
+    ivec2 off = k == 0 ? ivec2(1, 0) : k == 1 ? ivec2(-1, 0) : k == 2 ? ivec2(0, 1) : ivec2(0, -1);
+    ivec2 q = clamp(c + off * int(uLine), ivec2(0), sz - 1);
+    vec4 bq = texelFetch(uW, q, 0); bool ob = bq.a > 0.75;
+    if (obj != ob) e = 1.;                                                         // outline
+    else if (obj) {
+      if (abs(a.b - bq.b) > 0.01) e = 1.;                                          // where one layer meets another
+      else if (dot(nrm(a), nrm(bq)) < 0.92) e = max(e, 0.75);                      // creases and rims
+    }
+  }
+  float A;
+  if (obj) { float lit = clamp(dot(nrm(a), normalize(uLC)), 0., 1.); A = max(e, 0.05 + 0.13 * (1. - lit)); }
+  else A = max(e, a.a);
+  vec3 ink = vec3(0.071, 0.075, 0.071);
+  o = vec4(ink * A, A);
+}`;
   const VS_MARKS = `#version 300 es
 precision highp float; precision highp int;
 uniform highp sampler2D uTile; uniform int uTileN, uTilesX;
@@ -1789,13 +1945,15 @@ void main(){
     if (!gl) return null;
     const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
     const prog = (vs, fs) => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; };
-    let P1, P2;
-    try { P1 = prog(VS_FULL, FS_DENSITY); P2 = prog(VS_MARKS, FS_MARKS); } catch (e) { console.warn('Comput GPU preview off:', e.message); return null; }
+    let P1, P2, P3, P4;
+    try { P1 = prog(VS_FULL, FS_DENSITY); P2 = prog(VS_MARKS, FS_MARKS); P3 = prog(VS_FULL, FS_WIRE); P4 = prog(VS_FULL, FS_EDGES); } catch (e) { console.warn('Comput GPU preview off:', e.message); return null; }
     const U = (p, n) => gl.getUniformLocation(p, n);
     const tri = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, tri); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     const quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     const vao1 = gl.createVertexArray(); gl.bindVertexArray(vao1); gl.bindBuffer(gl.ARRAY_BUFFER, tri);
     const l1 = gl.getAttribLocation(P1, 'aP'); gl.enableVertexAttribArray(l1); gl.vertexAttribPointer(l1, 2, gl.FLOAT, false, 0, 0);
+    const vaoFor = (P) => { const v = gl.createVertexArray(); gl.bindVertexArray(v); gl.bindBuffer(gl.ARRAY_BUFFER, tri); const l = gl.getAttribLocation(P, 'aP'); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 2, gl.FLOAT, false, 0, 0); return v; };
+    const vao3 = vaoFor(P3), vao4 = vaoFor(P4);
     const vao2 = gl.createVertexArray(); gl.bindVertexArray(vao2); gl.bindBuffer(gl.ARRAY_BUFFER, quad);
     const l2 = gl.getAttribLocation(P2, 'aC'); gl.enableVertexAttribArray(l2); gl.vertexAttribPointer(l2, 2, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
@@ -1812,42 +1970,82 @@ void main(){
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, denTex, 0);
     };
+    const wireTex = gl.createTexture(), wireFbo = gl.createFramebuffer(); let ww = 0, wh = 0;
+    const sizeWire = (w, h) => {
+      if (w === ww && h === wh) return; ww = w; wh = h;
+      gl.bindTexture(gl.TEXTURE_2D, wireTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, wireFbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, wireTex, 0);
+    };
     const hex = (h) => { h = h.length === 4 ? '#' + [...h.slice(1)].map((c) => c + c).join('') : h; const n = parseInt(h.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
-    const TYPES = { sphere: 0, cube: 1, cylinder: 2, ring: 3, capsule: 4 };
+    const TYPES = { sphere: 0, cube: 1, cylinder: 2, ring: 3, capsule: 4, custom: 5 };
+    // atlas of drawn outlines' distance fields: 8 slots of 160 x 160, half floats (filterable)
+    const drawnTex = gl.createTexture(); let drawnKey = '';
+    gl.bindTexture(gl.TEXTURE_2D, drawnTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, 160 * 8, 160, 0, gl.RED, gl.FLOAT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    function uploadDrawn(C, fields) {
+      const key = fields.map((f) => f.key).join('#'); if (key === drawnKey) return; drawnKey = key;
+      const G = C.DRAWN_GRID, W = G * C.DRAWN_SLOTS, data = new Float32Array(W * G);
+      fields.forEach((f, slot) => { for (let j = 0; j < G; j++) data.set(f.grid.subarray(j * G, j * G + G), j * W + slot * G); });
+      gl.bindTexture(gl.TEXTURE_2D, drawnTex); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, G, gl.RED, gl.FLOAT, data);
+    }
 
     // st: { C (engine), scene, p, W, H (output px), pw, ph (canvas px) }
     function render(st) {
       const { C, scene, p, W, H } = st, aspect = W / H;
       if (canvas.width !== st.pw || canvas.height !== st.ph) { canvas.width = st.pw; canvas.height = st.ph; }
-      const shapes = (scene.shapes || []).slice(0, MAX);
-      // ---- pass 1: density ----
-      const long = Math.min(560, Math.max(st.pw, st.ph)), rw = aspect >= 1 ? long : Math.round(long * aspect), rh = Math.max(1, Math.round(rw / aspect));
-      sizeDensity(rw, rh);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, rw, rh); gl.disable(gl.BLEND);
-      gl.clearColor(0, 0.5, 0.5, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-      if (shapes.length) {
-        gl.useProgram(P1);
+      const shapes = (scene.shapes || []).slice(0, MAX), wire = st.mode === 'wire';
+      // ---- pass 1: density (rendered) or surfaces (wire, at full canvas size for crisp lines) ----
+      let rw, rh;
+      if (wire) { rw = st.pw; rh = st.ph; sizeWire(rw, rh); gl.bindFramebuffer(gl.FRAMEBUFFER, wireFbo); gl.clearColor(0.5, 0.5, 0, 0); }
+      else {
+        const long = Math.min(560, Math.max(st.pw, st.ph)); rw = aspect >= 1 ? long : Math.round(long * aspect); rh = Math.max(1, Math.round(rw / aspect));
+        sizeDensity(rw, rh); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.clearColor(0, 0.5, 0.5, 0);
+      }
+      gl.viewport(0, 0, rw, rh); gl.disable(gl.BLEND); gl.clear(gl.COLOR_BUFFER_BIT);
+      const P1x = wire ? P3 : P1;
+      if (shapes.length || wire) {
+        gl.useProgram(P1x);
         const { F, R, U: Up } = C.camera(scene), { zoom, panX, panY } = C.framing(scene);
         let L0 = p.iLightX, L1 = p.iLightY, L2 = 1; const ll = Math.hypot(L0, L1, L2); L0 /= ll; L1 /= ll; L2 /= ll;
         const LW = [L0 * R[0] + L1 * Up[0] - L2 * F[0], L0 * R[1] + L1 * Up[1] - L2 * F[1], L0 * R[2] + L1 * Up[2] - L2 * F[2]];
-        const PS = new Float32Array(MAX * 4), PT = new Float32Array(MAX * 4), DM = new Float32Array(MAX * 4), M = new Float32Array(MAX * 9);
+        const PS = new Float32Array(MAX * 4), PT = new Float32Array(MAX * 4), DM = new Float32Array(MAX * 4), CX = new Float32Array(MAX * 4), M = new Float32Array(MAX * 9);
+        const fields = [];
         const solid = shapes.filter((s) => !s.cut), sl = solid.length || 1;
         let bx = 0, by = 0, bz = 0; solid.forEach((s) => { bx += s.x; by += s.y; bz += s.z; }); bx /= sl; by /= sl; bz /= sl;
         let br = 0; const k = Math.max(1e-4, scene.melt || 0);
-        const defRound = { cube: 0.0875, cylinder: 0.0625 };
+        const defRound = { cube: 0.0875, cylinder: 0.0625, custom: 0.6 };
         shapes.forEach((s, i) => {
           PS.set([s.x, s.y, s.z, s.size], 4 * i); PT.set([TYPES[s.type] ?? 0, s.q ?? 0.5, s.cut ? 1 : 0, 0], 4 * i);
           DM.set([Math.max(0.02, s.w ?? 1), Math.max(0.02, s.h ?? 1), Math.max(0.02, s.d ?? 1), Math.min(0.95, Math.max(0, s.round ?? defRound[s.type] ?? 0))], 4 * i);
           M.set(C.rotMat(s.rx || 0, s.ry || 0, s.rz || 0), 9 * i);   // row-major upload = transpose = the inverse rotation
+          if (s.type === 'custom' && fields.length < C.DRAWN_SLOTS) {
+            const f = C.drawnField(Array.isArray(s.pts) && s.pts.length >= 3 ? s.pts : [[0, 1], [0.95, 0.3], [0.6, -0.8], [-0.6, -0.8], [-0.95, 0.3]]);
+            CX.set([fields.length, f.inr, 0, 0], 4 * i); fields.push(f);
+          }
           if (!s.cut) br = Math.max(br, Math.hypot(s.x - bx, s.y - by, s.z - bz) + C.boundOf(s) + k);
         });
-        gl.uniform2f(U(P1, 'uRes'), rw, rh); gl.uniform1f(U(P1, 'uAspect'), aspect); gl.uniform1f(U(P1, 'uZoom'), zoom); gl.uniform2f(U(P1, 'uPan'), panX, panY);
-        gl.uniform3fv(U(P1, 'uF'), F); gl.uniform3fv(U(P1, 'uR'), R); gl.uniform3fv(U(P1, 'uU'), Up); gl.uniform3fv(U(P1, 'uLW'), LW); gl.uniform3f(U(P1, 'uLC'), L0, L1, L2);
-        gl.uniform1i(U(P1, 'uN'), shapes.length); gl.uniform4fv(U(P1, 'uPS'), PS); gl.uniform4fv(U(P1, 'uPT'), PT); gl.uniform4fv(U(P1, 'uDM'), DM); gl.uniformMatrix3fv(U(P1, 'uM'), false, M);
-        gl.uniform1f(U(P1, 'uMelt'), scene.melt || 0); gl.uniform1f(U(P1, 'uGround'), scene.ground ?? 0.6); gl.uniform1f(U(P1, 'uGY'), C.groundY(scene) - 0.004);
-        gl.uniform1f(U(P1, 'uSP'), p.iShadowPacking); gl.uniform1f(U(P1, 'uRP'), p.iRimPacking); gl.uniform1f(U(P1, 'uInvert'), p.imgInvert ? 1 : 0); gl.uniform1f(U(P1, 'uEdge'), p.imgEdge);
-        gl.uniform4f(U(P1, 'uBS'), bx, by, bz, br);
-        gl.bindVertexArray(vao1); gl.drawArrays(gl.TRIANGLES, 0, 3);
+        gl.uniform2f(U(P1x, 'uRes'), rw, rh); gl.uniform1f(U(P1x, 'uAspect'), aspect); gl.uniform1f(U(P1x, 'uZoom'), zoom); gl.uniform2f(U(P1x, 'uPan'), panX, panY);
+        gl.uniform3fv(U(P1x, 'uF'), F); gl.uniform3fv(U(P1x, 'uR'), R); gl.uniform3fv(U(P1x, 'uU'), Up); gl.uniform3fv(U(P1x, 'uLW'), LW); gl.uniform3f(U(P1x, 'uLC'), L0, L1, L2);
+        gl.uniform1i(U(P1x, 'uN'), shapes.length); gl.uniform4fv(U(P1x, 'uPS'), PS); gl.uniform4fv(U(P1x, 'uPT'), PT); gl.uniform4fv(U(P1x, 'uDM'), DM); gl.uniform4fv(U(P1x, 'uCX'), CX);
+        uploadDrawn(C, fields); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, drawnTex); gl.uniform1i(U(P1x, 'uDrawn'), 2); gl.uniformMatrix3fv(U(P1x, 'uM'), false, M);
+        gl.uniform1f(U(P1x, 'uMelt'), scene.melt || 0); gl.uniform1f(U(P1x, 'uGround'), scene.ground ?? 0.6); const gy = C.groundY(scene); gl.uniform1f(U(P1x, 'uGY'), (Number.isFinite(gy) ? gy : -0.6) - 0.004);
+        gl.uniform1f(U(P1x, 'uSP'), p.iShadowPacking); gl.uniform1f(U(P1x, 'uRP'), p.iRimPacking); gl.uniform1f(U(P1x, 'uInvert'), p.imgInvert ? 1 : 0); gl.uniform1f(U(P1x, 'uEdge'), p.imgEdge);
+        gl.uniform4f(U(P1x, 'uBS'), bx, by, bz, br);
+        gl.bindVertexArray(wire ? vao3 : vao1); gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+      if (wire) {
+        // ---- pass 2 (wire): outlines, creases and a faint shade, over the board ----
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, st.pw, st.ph);
+        gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.useProgram(P4);
+        gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, wireTex); gl.uniform1i(U(P4, 'uW'), 3);
+        let L0 = p.iLightX, L1 = p.iLightY; gl.uniform3f(U(P4, 'uLC'), L0, L1, 1);
+        gl.uniform1f(U(P4, 'uLine'), Math.max(1, Math.round(st.pw / Math.max(1, st.cw || st.pw))));
+        gl.bindVertexArray(vao4); gl.drawArrays(gl.TRIANGLES, 0, 3); gl.bindVertexArray(null);
+        return;
       }
       // ---- pass 2: marks ----
       gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, st.pw, st.ph);
@@ -1897,6 +2095,7 @@ Shape types and their dimensions (full sizes, not half sizes):
 - ring: a torus; radius to the centre of the tube, tube = tube thickness. Lies flat by default; rx 90 stands it up facing the camera.
 - capsule: a pill along its y axis; radius and total length.
 - Any shape can have "hidden": true; keep hidden layers as they are unless asked.
+- Layers of type "drawn" are outlines the designer drew themselves (points, width, height, depth, inflate): keep their points exactly; you may move, rotate or resize them when asked.
 - Any shape can have "cut": true. A cut shape carves itself out of everything listed before it: use it for screens set into a body, holes, grooves, lens wells, the hollow of a cup. List cuts after the shapes they cut.
 rx, ry, rz: rotation in degrees about the shape's own x, then y, then z axis.
 Camera and light: yaw turns the camera around the subject (try -20 to -40 for a three-quarter view that shows depth), pitch 0-80 looks down from above, zoom > 1 moves in. light x,y (-1..1) is where the light comes from on screen; top-left reads best. ground 0-1 is the strength of the shadow on the floor (0 for floating objects). melt 0-0.4 fuses shapes into soft blobs: keep it 0 for manufactured objects.
@@ -2239,7 +2438,7 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     ['size', 'Size', 0.06, 1.5, 0.01, f2],
     ['w', 'Width', 0.05, 4, 0.01, (v) => `${(+v).toFixed(2)}×`, 1], ['h', 'Height', 0.05, 4, 0.01, (v) => `${(+v).toFixed(2)}×`, 1],
     ['d', 'Depth', 0.05, 4, 0.01, (v) => `${(+v).toFixed(2)}×`, 1],
-    ['round', 'Rounded corners', 0, 0.95, 0.01, (v) => `${Math.round(v * 100)}%`, (o) => (o.type === 'cylinder' ? 0.0625 : 0.0875)],
+    ['round', 'Rounded corners', 0, 0.95, 0.01, (v) => `${Math.round(v * 100)}%`, (o) => (o.type === 'cylinder' ? 0.0625 : o.type === 'custom' ? 0.6 : 0.0875)],
     ['x', 'Left / right', -2, 2, 0.01, f2], ['y', 'Down / up', -1.2, 1.2, 0.01, f2], ['z', 'Near / far', -1, 1, 0.01, f2],
     ['rx', 'Tilt', -180, 180, 1, deg], ['ry', 'Turn', -180, 180, 1, deg], ['rz', 'Roll', -180, 180, 1, deg],
   ], SEL, (k, live) => changed('scene', live));
@@ -2249,8 +2448,10 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
   ], SC, (k, live) => changed('scene', live));
   $('presetChips').innerHTML = Object.entries(Comput.SCENES).map(([k, v]) => `<button class="chip" data-k="${k}">${v.label}</button>`).join('');
   $('presetChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; p.scene = clone(Comput.SCENES[b.dataset.k].scene); ui.sel = 0; changed('scene'); });
-  $('addChips').innerHTML = Object.entries(Comput.SHAPES).map(([k, v]) => `<button class="chip" data-k="${k}">+ ${v.label}</button>`).join('');
+  $('addChips').innerHTML = Object.entries(Comput.SHAPES).filter(([k]) => k !== 'custom').map(([k, v]) => `<button class="chip" data-k="${k}">+ ${v.label}</button>`).join('') +
+    '<button class="chip" data-k="draw" title="Click points on the artboard to draw your own shape">+ Draw</button>';
   $('addChips').addEventListener('click', (e) => {
+    if (e.target.closest('[data-k="draw"]')) { startDraw(); return; }
     const b = e.target.closest('button'); if (!b) return;
     if (SC().shapes.length >= 24) return toast('A scene can hold up to 24 shapes');
     SC().shapes.push({ type: b.dataset.k, x: 0, y: 0, z: 0, size: 0.35, q: 0.5, rx: 0, ry: 0, rz: 0 });
@@ -2331,7 +2532,8 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
       // name the stretch sliders by what they do on this shape
       const L = { cylinder: ['Radius', 'Height', null], ring: ['Radius', 'Thickness', null], capsule: ['Thickness', 'Length', null] }[t] || ['Width', 'Height', 'Depth'];
       ['w', 'h', 'd'].forEach((k, i) => { rows[k].row.hidden = !L[i]; if (L[i]) rows[k].row.querySelector('label').textContent = L[i]; });
-      rows.round.row.hidden = !(t === 'cube' || t === 'cylinder');
+      rows.round.row.hidden = !(t === 'cube' || t === 'cylinder' || t === 'custom');
+      rows.round.row.querySelector('label').textContent = t === 'custom' ? 'Inflate' : 'Rounded corners';
       $('cutShape').checked = !!SEL().cut;
     }
     syncCamRows();
@@ -2402,9 +2604,10 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     const { W, H } = outSize(), f = fitBoard(W, H), gl = $('gl'), cv = $('cv');
     gl.style.width = f.cw + 'px'; gl.style.height = f.ch + 'px';
     cv.style.width = f.cw + 'px'; cv.style.height = f.ch + 'px';
-    try { gpu.render({ C: Comput, scene: VIS(), p, W, H, pw: f.pw, ph: f.ph }); } catch (e) { console.warn(e); gpu = null; return; }
+    const wire = ui.sceneView === 'wire';
+    try { gpu.render({ C: Comput, scene: VIS(), p, W, H, pw: f.pw, ph: f.ph, cw: f.cw, mode: wire ? 'wire' : 'render' }); } catch (e) { console.warn(e); gpu = null; return; }
     gl.classList.add('on'); cv.style.visibility = 'hidden';
-    $('boardTag').textContent = `${W} × ${H} PX · VIEW ${Math.round(f.vs * 100)}% · LIVE`;
+    $('boardTag').textContent = `${W} × ${H} PX · VIEW ${Math.round(f.vs * 100)}% · ${wire ? 'WIRE' : 'LIVE'}`;
     drawGizmo();
   }
   function requestGPU() { if (!gpuQueued) { gpuQueued = true; requestAnimationFrame(gpuFrame); } }
@@ -2413,7 +2616,8 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
   function sceneTouched(live) {
     sceneVer++;
     if (MOT.frames || MOT.playing) { stopMotion(true); syncMotion(); }
-    if (gpuLive()) {
+    if (gpuLive() && ui.sceneView === 'wire') { requestGPU(); busy(false, 'Wire view'); clearTimeout(exactTimer); }
+    else if (gpuLive()) {
       requestGPU(); busy(false, 'Live preview');
       clearTimeout(exactTimer);
       const go = () => { if (held > 0 || gest) { exactTimer = setTimeout(go, 120); return; } run(false); };
@@ -2424,6 +2628,14 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
 
   // ================= 3D controls =================
   ui.tool = { mode: 'move', axis: 'free', ...(ui.tool || {}) };
+  ui.sceneView = ui.sceneView === 'wire' ? 'wire' : 'render';
+  function setSceneView(v) {
+    ui.sceneView = v; save();
+    $('sceneViewSeg').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === v));
+    if (v === 'wire') { clearTimeout(exactTimer); requestGPU(); busy(false, 'Wire view'); } else sceneTouched(false);
+  }
+  $('sceneViewSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setSceneView(b.dataset.v); });
+  $('sceneViewSeg').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === ui.sceneView));
   const view = $('view'), ov = $('ov');
   const AX = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
   const boardRect = () => $('gl').classList.contains('on') ? $('gl').getBoundingClientRect() : $('cv').getBoundingClientRect();
@@ -2434,7 +2646,47 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     const hit = Comput.pickShape(VIS(), W, H, m.x, m.y, 10 * m.k);
     return hit < 0 ? -1 : idx[hit];
   }
+  // ----- draw your own shape: click points on the artboard, the curve closes on the first point -----
+  let DRAW = null;
+  const NAV_HINT = $('navHint').textContent;
+  function setDrawHint() {
+    $('navHint').textContent = DRAW ? 'Drawing: click to add points. Click the first point or press Enter to finish. Backspace removes the last point, Esc cancels.' : NAV_HINT;
+    view.classList.toggle('drawing', !!DRAW);
+  }
+  function startDraw() {
+    if (SC().shapes.length >= 24) return toast('A scene can hold up to 24 layers');
+    DRAW = { pts: [] }; ui.sel = -1; syncScene(); setDrawHint(); drawGizmo();
+    toast('Click points on the artboard to draw a shape');
+  }
+  function cancelDraw() { DRAW = null; setDrawHint(); drawGizmo(); }
+  function finishDraw() {
+    const P = DRAW.pts; DRAW = null; setDrawHint();
+    if (P.length < 3) { toast('A shape needs at least 3 points'); drawGizmo(); return; }
+    const sc = SC(), { W, H } = outSize(), aspect = W / H, fr = Comput.framing(sc), { R, U, F } = Comput.camera(sc);
+    // artboard px -> the camera plane through the scene's centre
+    const uv = P.map(([x, y]) => [((x / W) * 2 - 1) * aspect / fr.zoom + fr.panX, (1 - (y / H) * 2) / fr.zoom + fr.panY]);
+    const xs = uv.map((q) => q[0]), ys = uv.map((q) => q[1]);
+    const cu = (Math.min(...xs) + Math.max(...xs)) / 2, cv = (Math.min(...ys) + Math.max(...ys)) / 2;
+    const ext = Math.max(0.02, (Math.max(...xs) - Math.min(...xs)) / 2, (Math.max(...ys) - Math.min(...ys)) / 2);
+    const pts = uv.map(([u, v]) => [Math.round(((u - cu) / ext) * 1000) / 1000, Math.round(((v - cv) / ext) * 1000) / 1000]);
+    // it faces the camera: its own x along the camera's right, y along its up, z towards you
+    const e = Comput.matToEuler([R[0], U[0], -F[0], R[1], U[1], -F[1], R[2], U[2], -F[2]]);
+    const n = sc.shapes.filter((x) => x.type === 'custom').length + 1;
+    sc.shapes.push({ type: 'custom', name: `Drawn ${n}`, pts, x: cu * R[0] + cv * U[0], y: cu * R[1] + cv * U[1], z: cu * R[2] + cv * U[2],
+      size: ext, q: 0.5, w: 1, h: 1, d: 1, round: 0.6, rx: e.rx, ry: e.ry, rz: e.rz });
+    ui.sel = sc.shapes.length - 1; changed('scene');
+  }
+  function drawDrawing() {
+    const { W, H } = outSize(), f = fitBoard(W, H), k = W / f.cw, P = DRAW.pts;
+    ov.setAttribute('viewBox', `0 0 ${W} ${H}`); ov.style.width = f.cw + 'px'; ov.style.height = f.ch + 'px';
+    let out = '';
+    if (P.length >= 3) out += `<path class="dpath" d="M${Comput.splinePoints(P, 10).map((q) => q.join(' ')).join('L')}Z"/>`;
+    else if (P.length === 2) out += `<path class="dpath" d="M${P[0].join(' ')}L${P[1].join(' ')}"/>`;
+    P.forEach((q, i) => { out += `<circle class="dp${i === 0 ? ' first' : ''}" cx="${q[0]}" cy="${q[1]}" r="${(i === 0 && P.length >= 3 ? 7 : 4) * k}"/>`; });
+    ov.innerHTML = out;
+  }
   function drawGizmo() {
+    if (DRAW && p.source === 'scene' && ui.mode === 'single') { drawDrawing(); return; }
     const sel = SEL(), show = p.source === 'scene' && ui.mode === 'single' && sel && !sel.hidden;
     if (!show) { ov.innerHTML = ''; return; }
     const { W, H } = outSize(), f = fitBoard(W, H), k = W / f.cw;
@@ -2491,6 +2743,12 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
   view.addEventListener('pointerdown', (e) => {
     if (p.source !== 'scene' || ui.mode !== 'single' || !SC().shapes) return;
     if (e.target.closest('button, input')) return;
+    if (DRAW && e.button === 0 && !e.shiftKey && !spaceDown) {
+      const m = toOut(e), P = DRAW.pts;
+      if (P.length >= 3 && Math.hypot(m.x - P[0][0], m.y - P[0][1]) < 12 * m.k) finishDraw();
+      else { P.push([Math.round(m.x * 10) / 10, Math.round(m.y * 10) / 10]); drawGizmo(); }
+      e.preventDefault(); return;
+    }
     try { view.setPointerCapture(e.pointerId); } catch (err) {}
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const m = toOut(e);
@@ -2562,9 +2820,16 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
   document.addEventListener('keydown', (e) => {
     if (p.source !== 'scene' || ui.mode !== 'single' || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+    if (DRAW) {
+      if (e.key === 'Enter') finishDraw(); else if (e.key === 'Escape') cancelDraw();
+      else if (e.key === 'Backspace' || e.key === 'Delete') { DRAW.pts.pop(); drawGizmo(); }
+      else return;
+      e.preventDefault(); return;
+    }
     const k = e.key.toLowerCase();
     if (k === ' ') { spaceDown = true; return; }
-    if (k === 'g' || k === 'm') setTool('move'); else if (k === 'r') setTool('rotate'); else if (k === 's') setTool('scale');
+    if (k === 'w') setSceneView(ui.sceneView === 'wire' ? 'render' : 'wire');
+    else if (k === 'g' || k === 'm') setTool('move'); else if (k === 'r') setTool('rotate'); else if (k === 's') setTool('scale');
     else if (k === 'x' || k === 'y' || k === 'z') setTool(null, ui.tool.axis === k ? 'free' : k);
     else if (k === 'escape') { if (ui.tool.axis !== 'free') setTool(null, 'free'); else if (ui.sel !== -1) { ui.sel = -1; save(); syncScene(); drawGizmo(); } }
     else if (k === 'f' || k === 'home') resetView();
@@ -2714,6 +2979,7 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
         reads(); busy(false, 'Add a shape to start'); return;
       }
       const live = gpuLive() && !draft;
+      if (live && ui.sceneView === 'wire') { requestGPU(); busy(false, 'Wire view'); return; }   // no exact render while in Wire
       if (live) requestGPU();
       const srcs = source();
       for (let i = 0; i < sizes.length; i++) {
@@ -2949,7 +3215,8 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
   // those into its own shape settings, and back again when Claude edits an existing scene.
   const numIn = (v, a, b, d) => { v = +v; return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : d; };
   const MAXS = 24, R3 = (v) => Math.round(v * 1000) / 1000;
-  const TYPE_IN = { box: 'cube', cube: 'cube', sphere: 'sphere', ellipsoid: 'sphere', cylinder: 'cylinder', disc: 'cylinder', ring: 'ring', torus: 'ring', capsule: 'capsule', pill: 'capsule' };
+  const cleanPts = (a) => { const q = (Array.isArray(a) ? a : []).filter((v) => Array.isArray(v) && v.length === 2).slice(0, 64).map(([u, v]) => [numIn(u, -1.5, 1.5, 0), numIn(v, -1.5, 1.5, 0)]); return q.length >= 3 ? q : undefined; };
+  const TYPE_IN = { drawn: 'custom', custom: 'custom', box: 'cube', cube: 'cube', sphere: 'sphere', ellipsoid: 'sphere', cylinder: 'cylinder', disc: 'cylinder', ring: 'ring', torus: 'ring', capsule: 'capsule', pill: 'capsule' };
   function toWorld(sh) {
     const s0 = sh.size, q = sh.q ?? 0.5, w = sh.w ?? 1, h = sh.h ?? 1, d = sh.d ?? 1;
     const o = { name: sh.name, type: sh.type === 'cube' ? 'box' : sh.type, x: R3(sh.x), y: R3(sh.y), z: R3(sh.z) };
@@ -2957,6 +3224,7 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     else if (sh.type === 'cylinder') Object.assign(o, { radius: R3(0.8 * w * s0), height: R3(1.6 * (0.2 + 1.6 * q) * h * s0), round: R3(sh.round ?? 0.0625) });
     else if (sh.type === 'ring') Object.assign(o, { radius: R3(0.8 * w * s0), tube: R3((0.08 + 0.4 * q) * h * s0) });
     else if (sh.type === 'capsule') Object.assign(o, { radius: R3(0.42 * w * s0), length: R3(2 * (1.4 * q * h * s0 + 0.42 * w * s0)) });
+    else if (sh.type === 'custom') Object.assign(o, { type: 'drawn', width: R3(2 * w * s0), height: R3(2 * h * s0), depth: R3(0.5 * d * s0), inflate: R3(sh.round ?? 0.6), points: sh.pts });
     else Object.assign(o, { width: R3(2 * w * s0), height: R3(2 * h * s0), depth: R3(2 * d * s0) });
     Object.assign(o, { rx: Math.round(sh.rx || 0), ry: Math.round(sh.ry || 0), rz: Math.round(sh.rz || 0) });
     if (sh.cut) o.cut = true;
@@ -2968,7 +3236,9 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     const L = (v, d) => numIn(v, 0.004, 4, d);
     const sh = { type, x: numIn(x.x, -3, 3, 0), y: numIn(x.y, -2, 2, 0), z: numIn(x.z, -2, 2, 0), size: 1, q: 0.5,
       rx: numIn(x.rx, -180, 180, 0), ry: numIn(x.ry, -180, 180, 0), rz: numIn(x.rz, -180, 180, 0) };
-    if (type === 'cube') Object.assign(sh, { w: L(x.width, 0.5) / 1.6, h: L(x.height, 0.5) / 1.6, d: L(x.depth, 0.5) / 1.6, round: numIn(x.round, 0, 0.95, 0.15) });
+    if (type === 'custom') { const pts = cleanPts(x.points || x.pts); if (!pts) return null;
+      Object.assign(sh, { pts, w: L(x.width, 0.6) / 2, h: L(x.height, 0.6) / 2, d: L(x.depth, 0.15) / 0.5, round: numIn(x.inflate ?? x.round, 0, 1, 0.6) }); }
+    else if (type === 'cube') Object.assign(sh, { w: L(x.width, 0.5) / 1.6, h: L(x.height, 0.5) / 1.6, d: L(x.depth, 0.5) / 1.6, round: numIn(x.round, 0, 0.95, 0.15) });
     else if (type === 'cylinder') Object.assign(sh, { w: L(x.radius, 0.2) / 0.8, h: L(x.height, 0.3) / 1.6, round: numIn(x.round, 0, 0.95, 0.1) });
     else if (type === 'ring') Object.assign(sh, { w: L(x.radius, 0.3) / 0.8, h: L(x.tube, 0.06) / 0.28 });
     else if (type === 'capsule') { const r = L(x.radius, 0.1), len = Math.max(2 * r, L(x.length, 0.5)); Object.assign(sh, { w: r / 0.42, h: Math.max(0, len / 2 - r) / 0.7 }); }
@@ -2988,6 +3258,7 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
       for (const k of ['w', 'h', 'd']) if (x[k] != null) o[k] = numIn(x[k], 0.02, 4, 1);
       if (x.round != null) o.round = numIn(x.round, 0, 0.95, 0.1);
       if (x.cut) o.cut = true; if (x.hidden) o.hidden = true; if (x.name) o.name = String(x.name).slice(0, 24);
+      if (x.type === 'custom') o.pts = cleanPts(x.pts);
       return o;
     })).filter(Boolean).slice(0, MAXS);
     return { aspect: FRAMES.includes(d.aspect) ? d.aspect : '4:5', melt: numIn(d.melt, 0, 0.4, 0), ground: numIn(d.ground, 0, 1, 0.6),
