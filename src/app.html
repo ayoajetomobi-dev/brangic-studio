@@ -232,7 +232,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         <div class="field"><input id="size" type="number" min="16" max="10000" step="1" inputmode="numeric" aria-label="Output size in pixels"><span class="unit">PX</span></div>
         <div class="chips" id="sizeChips"></div>
         <p class="sub" data-src="sphere">Bigger sizes get more, smaller 0s and 1s, so the texture holds at any scale.</p>
-        <p class="sub" data-src="logo">The size of the file you export, in pixels. Every size is the same logo, mark for mark, just bigger or smaller, so it looks identical at 64 px and at 10K. The preview always fits your screen; click <b>1:1</b> above it to see true size.</p>
+        <p class="sub" data-src="logo">The size of the file you export, in pixels. It always looks like the designer's logo: fine particles, no visible pills. Up to 512 px every mark is about 1 pixel, as in the original (at 96 px it is the original). Bigger sizes are the 512 px logo scaled up, so they look identical to it; the pills only show if you zoom right in. The preview fits your screen; click <b>1:1</b> to see true size.</p>
       </section>
 
       <section class="mod" data-src="logo">
@@ -241,8 +241,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         <ol class="steps"><li>Choose a <b>size</b> above (or type one, up to 10,000 px).</li><li>Choose a <b>colourway</b> below.</li><li><b>Export</b> under the logo: SVG or PNG.</li></ol>
         <div class="group-t">Colourway</div>
         <div class="chips" id="logoChips"></div>
-        <p class="sub" style="margin:0">Every size has the same 22,400 marks, so the SVG is the same small file (about 0.4 MB) at any size and opens easily in Figma or Illustrator.</p>
-        <p class="sub" style="margin:0"><b>Below 256 px, use the PNG.</b> At those sizes each mark is smaller than a pixel, and apps draw such tiny marks in an SVG too light or too dark. The PNG is drawn large and averaged down, so it keeps the logo's exact tone.</p>
+        <p class="sub" style="margin:0">From 512 px up every size has the same 119,000 marks, so the SVG stays about 2.5 MB (For web) at any size, 10K included.</p>
       </section>
 
       <section class="mod" data-nologo>
@@ -476,11 +475,13 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   function eng() {
     if (p.source !== 'logo') return p;
     const o = { ...p }; for (const k of ORIGINAL_KEYS) o[k] = D[k];
-    return Object.assign(o, { source: 'sphere', color: p.logoColor, background: p.logoBg, maxMarks: LOGO_MAX_MARKS });
+    // the designer's grain: every mark ~1.06 px, as in the shared logo at its own size (growth 0 keeps it there)
+    return Object.assign(o, { source: 'sphere', color: p.logoColor, background: p.logoBg, growth: 0, minGrain: 0.5, maxMarks: LOGO_MAX_MARKS });
   }
   const CK = () => (p.source === 'logo' ? ['logoColor', 'logoBg'] : ['color', 'background']);
-  // The Logo tab draws ONE master logo (the 512 px particle look) and scales that exact drawing to the
-  // size asked for, so every size is identical: same marks, same places, same tone, only bigger or smaller.
+  // The Logo tab keeps the designer's look: up to 512 px every mark is ~1 px (at 96 px it is their logo exactly),
+  // so it always reads as fine particles. Above that, the 512 px logo is scaled, so big sizes are identical to it
+  // and the pills only show when you zoom right in.
   const LOGO_MASTER = 512;
   function scaleResult(r, size) {
     const k = size / r.width, sc = (a) => { const o = new Float64Array(a.length); for (let i = 0; i < a.length; i++) o[i] = a[i] * k; return o; };
@@ -489,8 +490,9 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   }
   async function genAt(size, args) {
     if (p.source !== 'logo') return ENG.gen({ p, size, ...args });
-    const r = await ENG.gen({ ...args, p: eng(), size: LOGO_MASTER, opt: { ...(args.opt || {}), draft: false } });
-    return scaleResult(r, size);
+    const at = Math.min(size, LOGO_MASTER);
+    const r = await ENG.gen({ ...args, p: eng(), size: at, opt: { ...(args.opt || {}), draft: false } });
+    return at === size ? r : scaleResult(r, size);
   }
   const fileKind = () => ({ sphere: 'orb', logo: 'logo', scene: 'scene' }[p.source] || 'illustration');
   const POS = new Set(Comput.POSITION_KEYS), TONE = new Set(Comput.TONE_KEYS);
