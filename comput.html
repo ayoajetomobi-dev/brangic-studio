@@ -232,7 +232,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         <div class="field"><input id="size" type="number" min="16" max="10000" step="1" inputmode="numeric" aria-label="Output size in pixels"><span class="unit">PX</span></div>
         <div class="chips" id="sizeChips"></div>
         <p class="sub" data-src="sphere">Bigger sizes get more, smaller 0s and 1s, so the texture holds at any scale.</p>
-        <p class="sub" data-src="logo">The size of the file you export, in pixels. It always looks like the designer's logo: fine particles, no visible pills. Up to 512 px every mark is about 1 pixel, as in the original (at 96 px it is the original). Bigger sizes are the 512 px logo scaled up, so they look identical to it; the pills only show if you zoom right in. The preview fits your screen; click <b>1:1</b> to see true size.</p>
+        <p class="sub" data-src="logo">The size of the file you export, in pixels. It always looks like the designer's logo: fine particles, no visible pills. Up to 1K every mark is about 1 pixel, as in the original (at 96 px it is the original). Bigger sizes are the 1K logo scaled up, so they look identical to it; the pills only show if you zoom right in. The preview fits your screen; click <b>1:1</b> to see true size.</p>
       </section>
 
       <section class="mod" data-src="logo">
@@ -241,7 +241,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         <ol class="steps"><li>Choose a <b>size</b> above (or type one, up to 10,000 px).</li><li>Choose a <b>colourway</b> below.</li><li><b>Export</b> under the logo: SVG or PNG.</li></ol>
         <div class="group-t">Colourway</div>
         <div class="chips" id="logoChips"></div>
-        <p class="sub" style="margin:0">From 512 px up every size has the same 119,000 marks, so the SVG stays about 2.5 MB (For web) at any size, 10K included.</p>
+        <p class="sub" style="margin:0">From 1K up every size has the same 478,000 marks. The SVG For web is about 9 MB at any size and opens in Illustrator or a browser; For Figma is much heavier, so above 512 px use For web or the PNG. The first size above 512 px takes a few seconds to draw, then every size is instant.</p>
       </section>
 
       <section class="mod" data-nologo>
@@ -2224,10 +2224,10 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     return Object.assign(o, { source: 'sphere', color: p.logoColor, background: p.logoBg, growth: 0, minGrain: 0.5, maxMarks: LOGO_MAX_MARKS });
   }
   const CK = () => (p.source === 'logo' ? ['logoColor', 'logoBg'] : ['color', 'background']);
-  // The Logo tab keeps the designer's look: up to 512 px every mark is ~1 px (at 96 px it is their logo exactly),
-  // so it always reads as fine particles. Above that, the 512 px logo is scaled, so big sizes are identical to it
+  // The Logo tab keeps the designer's look: up to 1024 px every mark is ~1 px (at 96 px it is their logo exactly),
+  // so it always reads as fine particles. Above that, the 1024 px logo is scaled, so big sizes are identical to it
   // and the pills only show when you zoom right in.
-  const LOGO_MASTER = 512;
+  const LOGO_MASTER = 1024;   // big enough that the preview never shows a mark above ~1 px on screen
   function scaleResult(r, size) {
     const k = size / r.width, sc = (a) => { const o = new Float64Array(a.length); for (let i = 0; i < a.length; i++) o[i] = a[i] * k; return o; };
     return { ...r, size, width: size, height: Math.round(r.height * k), x: sc(r.x), y: sc(r.y), half: sc(r.half),
