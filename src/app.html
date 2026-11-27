@@ -588,8 +588,12 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
     const ctx = cv.getContext('2d'); ctx.drawImage(el, 0, 0, w, h);
     const d = ctx.getImageData(0, 0, w, h).data, lum = new Float32Array(w * h), alpha = new Float32Array(w * h);
-    for (let i = 0; i < w * h; i++) { lum[i] = (0.2126 * d[4 * i] + 0.7152 * d[4 * i + 1] + 0.0722 * d[4 * i + 2]) / 255; alpha[i] = d[4 * i + 3] / 255; }
-    return { id: name + ':' + w + 'x' + h + ':' + Date.now(), name, w, h, lum, alpha, url: cv.toDataURL('image/png') };
+    const rgb = new Uint8Array(w * h * 3);   // kept for finding the backdrop by colour
+    for (let i = 0; i < w * h; i++) {
+      lum[i] = (0.2126 * d[4 * i] + 0.7152 * d[4 * i + 1] + 0.0722 * d[4 * i + 2]) / 255; alpha[i] = d[4 * i + 3] / 255;
+      rgb[3 * i] = d[4 * i]; rgb[3 * i + 1] = d[4 * i + 1]; rgb[3 * i + 2] = d[4 * i + 2];
+    }
+    return { id: name + ':' + w + 'x' + h + ':' + Date.now(), name, w, h, lum, alpha, rgb, url: cv.toDataURL('image/png') };
   }
   function sampleImg() {
     const im = Comput.sampleImage();
