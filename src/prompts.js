@@ -1,6 +1,5 @@
 /* Comput prompts for Describe a scene.
- * Shared by the page (inside Claude, on the viewer's own account) and the relay Worker
- * (on brangic.studio), so both send Claude exactly the same brief.
+ * Used by the page inside the Claude artifact, on the viewer's own Claude plan.
  */
 const ComputPrompts = (() => {
   const MAXS = 24;

@@ -1823,8 +1823,7 @@ void main(){
 </script>
 <script>
 /* Comput prompts for Describe a scene.
- * Shared by the page (inside Claude, on the viewer's own account) and the relay Worker
- * (on brangic.studio), so both send Claude exactly the same brief.
+ * Used by the page inside the Claude artifact, on the viewer's own Claude plan.
  */
 const ComputPrompts = (() => {
   const MAXS = 24;
@@ -2919,15 +2918,11 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     return { aspect: FRAMES.includes(d.aspect) ? d.aspect : '4:5', melt: numIn(d.melt, 0, 0.4, 0), ground: numIn(d.ground, 0, 1, 0.6),
       yaw: numIn(d.yaw, -180, 180, 0), pitch: numIn(d.pitch, 0, 80, 12), zoom: numIn(d.zoom, 0.2, 8, 1), panX: numIn(d.panX, -4, 4, 0), panY: numIn(d.panY, -4, 4, 0), shapes };
   }
-  // Two ways to reach Claude: inside the Claude artifact, the viewer's own account (sample);
-  // on brangic.studio, the Comput relay Worker, which holds the API key and the prompts.
-  const RELAY = 'https://comput-relay.ayomideajetomobi.workers.dev';
-  const relayOn = !/REPLACE/.test(RELAY) && /^https?:$/.test(location.protocol) && !(window.claude && window.claude.use);
+  // Claude is reached only inside the Claude artifact, on the viewer's own Claude plan (sample).
+  // Elsewhere (brangic.studio) the feature stays hidden, so nothing ever spends API credit.
   let sampleFn = null, aiCtl = null, aiSees = false, aiTier = 'default', aiCheckTier = 'quick';
   const AI_NOTE = 'Claude\'s most capable model builds the object from the shape library; a faster, cheaper model checks the render, and the capable one fixes only what it finds. Can take a minute.';
-  if (relayOn) { $('aiBox').hidden = false; aiSees = true; $('aiNote').textContent = AI_NOTE; }
   (window.claude && window.claude.use ? window.claude.use('sample').catch(() => null) : Promise.resolve(null)).then(async (fn) => {
-    if (relayOn) return;
     sampleFn = fn; $('aiBox').hidden = !fn;
     if (!fn) return;
     const lim = await fn.limits().catch(() => null);
@@ -2935,20 +2930,11 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     aiCheckTier = !lim || !lim.modelTiers || lim.modelTiers.includes('quick') ? 'quick' : 'default';
     $('aiNote').textContent = AI_NOTE + ' Uses your Claude account.';
   });
-  async function relayCall(task, payload, signal) {
-    let r;
-    try { r = await fetch(RELAY, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ task, ...payload }), signal }); }
-    catch (e) { throw { code: e && e.name === 'AbortError' ? 'cancelled' : 'upstream_error' }; }
-    const o = await r.json().catch(() => ({ error: 'upstream_error' }));
-    if (!r.ok || o.error) throw { code: o.error || 'upstream_error' };
-    return o.data;
-  }
-  const blobB64 = (b) => new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1] || ''); fr.readAsDataURL(b); });
-  // the three steps, whichever way Claude is reached
+  // the three steps: build on the capable tier, check the render on the quick tier, fix only if needed
   const AI = {
-    build: (want, signal) => sampleFn ? sampleFn.json(ComputPrompts.build(want, currentWorld()), { signal, modelTier: aiTier }) : relayCall('build', { want, scene: currentWorld() }, signal),
-    check: async (want, parts, shot, signal) => sampleFn ? sampleFn.json(ComputPrompts.check(want, parts), { signal, modelTier: aiCheckTier, images: [shot] }) : relayCall('check', { want, parts, image: await blobB64(shot) }, signal),
-    fix: (want, first, issues, signal) => sampleFn ? sampleFn.json(ComputPrompts.fix(want, first, issues), { signal, modelTier: aiTier }) : relayCall('fix', { want, first, issues }, signal),
+    build: (want, signal) => sampleFn.json(ComputPrompts.build(want, currentWorld()), { signal, modelTier: aiTier }),
+    check: (want, parts, shot, signal) => sampleFn.json(ComputPrompts.check(want, parts), { signal, modelTier: aiCheckTier, images: [shot] }),
+    fix: (want, first, issues, signal) => sampleFn.json(ComputPrompts.fix(want, first, issues), { signal, modelTier: aiTier }),
   };
   const AI_GUIDE = ComputPrompts.GUIDE;
   const currentWorld = () => ({ aspect: SC().aspect, yaw: SC().yaw, pitch: SC().pitch, zoom: SC().zoom ?? 1, ground: SC().ground, melt: SC().melt, light: { x: p.iLightX, y: p.iLightY }, shapes: SC().shapes.map(toWorld) });
@@ -2967,7 +2953,7 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     return new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
   }
   $('aiGo').addEventListener('click', async () => {
-    const want = $('aiText').value.trim(); if (!sampleFn && !relayOn) return; if (!want) return toast('Describe the scene first');
+    const want = $('aiText').value.trim(); if (!sampleFn) return; if (!want) return toast('Describe the scene first');
     aiCtl = new AbortController(); $('aiGo').disabled = true; $('aiStop').disabled = false;
     try {
       $('aiNote').textContent = 'Designing the object…';
@@ -2992,7 +2978,6 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     } catch (e) {
       const c = e && e.code;
       if (c === 'not_granted' || c === 'sampling_disabled' || c === 'capability_disabled' || c === 'not_declared') { $('aiBox').hidden = true; $('aiNote').textContent = 'Claude is not available for this artifact.'; }
-      else if (c === 'not_configured' || c === 'origin') $('aiNote').textContent = 'The Claude connection for this site is not set up yet.';
       else if (c === 'images_unavailable' || c === 'image_rejected') { aiSees = false; $('aiNote').textContent = 'Built it, but Claude could not look at the result in this view.'; }
       else $('aiNote').textContent = { cancelled: 'Stopped.', rate_limited: 'Too many requests. Try again in a minute.', invalid_json: 'Claude did not return a scene. Try rephrasing.',
         empty: 'Claude did not return any shapes. Try rephrasing.', refused: 'Claude declined that request. Try rephrasing.' }[c] || 'Something went wrong. Try again.';
