@@ -838,12 +838,59 @@ const Comput = (() => {
     }
     return out;
   }
+  // Bezier outlines: each anchor is [x, y, inX, inY, outX, outY], handles relative to the anchor
+  // (0, 0 = a corner on that side). Older drawings are plain [x, y] points smoothed as above.
+  const isBez = (pts) => Array.isArray(pts) && pts.length > 0 && pts[0].length >= 6;
+  function toBezier(pts) {
+    if (isBez(pts)) return pts.map((q) => q.slice(0, 6));
+    const n = pts.length;
+    return pts.map((q, i) => {   // a Catmull-Rom curve is exactly a Bezier with these handles
+      const a = pts[(i - 1 + n) % n], b = pts[(i + 1) % n], ox = (b[0] - a[0]) / 6, oy = (b[1] - a[1]) / 6;
+      return [q[0], q[1], -ox, -oy, ox, oy];
+    });
+  }
+  // one segment, anchor i to the next, as its four control points
+  function bezSeg(P, i, closed = true) {
+    const a = P[i], b = P[(i + 1) % P.length];
+    return [[a[0], a[1]], [a[0] + a[4], a[1] + a[5]], [b[0] + b[2], b[1] + b[3]], [b[0], b[1]]];
+  }
+  const bezAt = (c, t) => { const u = 1 - t; return [0, 1].map((k) => u * u * u * c[0][k] + 3 * u * u * t * c[1][k] + 3 * u * t * t * c[2][k] + t * t * t * c[3][k]); };
+  // the closed outline as a polygon (straight segments need only their ends)
+  function pathPoints(pts, per = 16) {
+    if (!isBez(pts)) return splinePoints(pts, Math.max(4, Math.round(per * 0.9)));
+    const out = [];
+    for (let i = 0; i < pts.length; i++) {
+      const c = bezSeg(pts, i), straight = !pts[i][4] && !pts[i][5] && !pts[(i + 1) % pts.length][2] && !pts[(i + 1) % pts.length][3];
+      const m = straight ? 1 : per;
+      for (let k = 0; k < m; k++) out.push(bezAt(c, k / m));
+    }
+    return out;
+  }
+  // split segment i at t (de Casteljau): the outline keeps its exact shape, with a new anchor at t
+  function splitPath(pts, i, t) {
+    const P = toBezier(pts), c = bezSeg(P, i), L = (a, b) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    const p01 = L(c[0], c[1]), p12 = L(c[1], c[2]), p23 = L(c[2], c[3]), a = L(p01, p12), b = L(p12, p23), m = L(a, b);
+    const j = (i + 1) % P.length, A = P[i], B = P[j];
+    A[4] = p01[0] - A[0]; A[5] = p01[1] - A[1];
+    B[2] = p23[0] - B[0]; B[3] = p23[1] - B[1];
+    const nw = [m[0], m[1], a[0] - m[0], a[1] - m[1], b[0] - m[0], b[1] - m[1]];
+    P.splice(i + 1, 0, nw);
+    return { pts: P, index: i + 1 };
+  }
+  // re-centre an outline in -1..1 (by the curve itself, not just its anchors)
+  function fitPath(pts) {
+    const P = toBezier(pts), poly = pathPoints(P, 24), xs = poly.map((q) => q[0]), ys = poly.map((q) => q[1]);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+    const ext = Math.max(1e-3, (Math.max(...xs) - Math.min(...xs)) / 2, (Math.max(...ys) - Math.min(...ys)) / 2);
+    const r = (v) => Math.round(v * 1e4) / 1e4;
+    return { cx, cy, ext, pts: P.map((q) => [r((q[0] - cx) / ext), r((q[1] - cy) / ext), r(q[2] / ext), r(q[3] / ext), r(q[4] / ext), r(q[5] / ext)]) };
+  }
   const _fields = new Map();
   // signed distance field of the smoothed outline on a grid (row 0 = bottom); inr = deepest inside distance
   function drawnField(pts) {
     const key = JSON.stringify(pts);
     if (_fields.has(key)) return _fields.get(key);
-    const poly = splinePoints(pts), n = poly.length, G = DRAWN_GRID, E = DRAWN_EXT, F = new Float32Array(G * G);
+    const poly = pathPoints(pts), n = poly.length, G = DRAWN_GRID, E = DRAWN_EXT, F = new Float32Array(G * G);
     let inr = 0;
     for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) {
       const x = -E + ((i + 0.5) / G) * 2 * E, y = -E + ((j + 0.5) / G) * 2 * E;
@@ -1209,6 +1256,6 @@ const Comput = (() => {
       `<style>${css}</style>` + bgRect(p, V, VH) + groups + `</svg>`;
   }
 
-  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, coverage, pickShape, boundOf, knockout, splinePoints, drawnField, DRAWN_GRID, DRAWN_EXT, DRAWN_SLOTS, camera, framing, projectPoint, groundY, rotMat, matToEuler, axisMat, matMul, logoDensity, shapeExtent, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
+  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, coverage, pickShape, boundOf, knockout, splinePoints, pathPoints, toBezier, splitPath, fitPath, bezSeg, bezAt, drawnField, DRAWN_GRID, DRAWN_EXT, DRAWN_SLOTS, camera, framing, projectPoint, groundY, rotMat, matToEuler, axisMat, matMul, logoDensity, shapeExtent, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
 })();
 if (typeof module !== 'undefined') module.exports = Comput;

@@ -170,6 +170,13 @@ details.more[open] > summary .pm::before { content: "–" } details.more:not([op
 .view.scene.drawing, .view.scene.drawing canvas { cursor: crosshair }
 #ov .dp { fill: #121312; stroke: #f4f5f2; stroke-width: 1.5; vector-effect: non-scaling-stroke }
 #ov .dp.first { fill: #f4f5f2; stroke: #121312 }
+#ov .an { fill: #f4f5f2; stroke: #121312; stroke-width: 1.25; vector-effect: non-scaling-stroke }
+#ov .an.on { fill: #121312; stroke: #f4f5f2 }
+#ov .hl { stroke: #121312; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: .7 }
+#ov .hk { fill: #f4f5f2; stroke: #121312; stroke-width: 1.25; vector-effect: non-scaling-stroke }
+#ov .dline { fill: rgba(18, 19, 18, .06); stroke: #121312; stroke-width: 1.5; vector-effect: non-scaling-stroke }
+#ov .rb { fill: none; stroke: #121312; stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 4 4; opacity: .7 }
+#ov path.halo { fill: none }
 #ov .dpath { fill: rgba(18, 19, 18, .06); stroke: #121312; stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-dasharray: 5 4 }
 .kbd { font-size: 11px; color: var(--mute) }
 .board .tag { position: absolute; left: 0; top: -18px; font-size: 10px; letter-spacing: .08em; color: var(--mute); white-space: nowrap }
@@ -248,6 +255,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
           <button class="btn ghost sm" id="dupShape" title="Duplicate (Shift+D)">Duplicate</button><button class="btn ghost sm" id="delShape" title="Remove (Delete)">Remove</button>
         </div>
         <div class="field" id="nameRow"><span class="unit">NAME</span><input id="shapeName" type="text" maxlength="24" spellcheck="false" aria-label="Layer name"></div>
+        <button class="btn ghost sm" id="editPts" hidden title="Move points, bend the curves, add or remove points (or double-click the shape)">Edit points</button>
         <div class="rows" id="shapeRows"></div>
         <label class="toggle" id="cutRow">Cut it out of the layers above<input type="checkbox" id="cutShape"></label>
         <div class="group-t">Describe a scene</div>
@@ -397,6 +405,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
       <div class="dock" id="sceneDock" role="toolbar" aria-label="Scene tools" hidden>
         <div class="tgrp" id="toolSeg" role="group" aria-label="Tool"><button class="tb" data-v="move" aria-pressed="true" title="Move (G)" aria-label="Move (G)"><svg viewBox="0 0 16 16"><path d="M8 1.5v13M1.5 8h13M6 3.5l2-2 2 2M6 12.5l2 2 2-2M3.5 6l-2 2 2 2M12.5 6l2 2-2 2"/></svg></button><button class="tb" data-v="rotate" aria-pressed="false" title="Rotate (R)" aria-label="Rotate (R)"><svg viewBox="0 0 16 16"><path d="M13.5 8A5.5 5.5 0 1 1 11.4 3.7"/><path d="M11.8 1.2v2.9H8.9"/></svg></button><button class="tb" data-v="scale" aria-pressed="false" title="Scale (S)" aria-label="Scale (S)"><svg viewBox="0 0 16 16"><rect x="2" y="7.5" width="6.5" height="6.5"/><path d="M8 8l6-6M10 2h4v4"/></svg></button></div>
         <div class="tgrp" id="addChips" role="group" aria-label="Add a shape"></div>
+        <button class="btn sm" id="doneEdit" hidden title="Finish editing points (Enter)">Done</button>
         <button class="btn ghost sm" id="clearScene" title="Remove every layer. Undo brings them back.">Clear</button>
       </div>
       <div class="dock" id="imgDock" role="toolbar" aria-label="Picture" hidden>
@@ -809,7 +818,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   $('addChips').innerHTML = Object.entries(Comput.SHAPES).filter(([k]) => k !== 'custom').map(([k, v]) => tbtn(k, 'Add a ' + v.label.toLowerCase())).join('') +
     tbtn('draw', 'Pen: draw your own shape', ' aria-pressed="false"');
   $('addChips').addEventListener('click', (e) => {
-    if (e.target.closest('[data-k="draw"]')) { if (!DRAW) startDraw(); else if (DRAW.pts.length >= 3) finishDraw(); else { cancelDraw(); toast('Drawing cancelled'); } return; }
+    if (e.target.closest('[data-k="draw"]')) { if (!DRAW) startDraw(); else if (canClose(DRAW.pts)) finishDraw(); else { cancelDraw(); toast('Drawing cancelled'); } return; }
     const b = e.target.closest('button'); if (!b) return;
     if (SC().shapes.length >= 24) return toast('A scene can hold up to 24 shapes');
     if (DRAW) cancelDraw();
@@ -841,6 +850,8 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   });
   $('cutShape').addEventListener('change', () => { if (!SEL()) return; SEL().cut = $('cutShape').checked; changed('scene'); });
   $('dupShape').addEventListener('click', () => { const s0 = SEL(); if (!s0 || SC().shapes.length >= 24) return; const c = clone(s0); c.x += 0.15; c.y += 0.1; SC().shapes.push(c); ui.sel = SC().shapes.length - 1; changed('scene'); });
+  $('editPts').addEventListener('click', () => { if (EDIT) endEdit(); else enterEdit(ui.sel); });
+  $('doneEdit').addEventListener('click', endEdit);
   $('clearScene').addEventListener('click', () => {
     if (DRAW) cancelDraw();
     if (!SC().shapes.length) return;
@@ -889,6 +900,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     $('dupShape').disabled = $('delShape').disabled = !has;
     $('shapeHint').textContent = has ? (SEL().hidden ? 'This layer is hidden. Click its eye to show it.' : 'Drag it on the artboard, or fine-tune it here.') : sc.shapes.length ? 'Click a layer, or a shape on the artboard, to edit it.' : 'Add a shape, or start from a ready-made scene.';
     $('cutRow').hidden = $('nameRow').hidden = !has;
+    $('editPts').hidden = !(has && SEL().type === 'custom'); $('editPts').textContent = EDIT && EDIT.i === ui.sel ? 'Done editing points' : 'Edit points';
     if (has && document.activeElement !== $('shapeName')) $('shapeName').value = SEL().name || '';
     $('upShape').disabled = !has || ui.sel <= 0; $('downShape').disabled = !has || ui.sel >= sc.shapes.length - 1;
     if (has) {
@@ -1011,48 +1023,181 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     const hit = Comput.pickShape(VIS(), W, H, m.x, m.y, 10 * m.k);
     return hit < 0 ? -1 : idx[hit];
   }
-  // ----- draw your own shape: click points on the artboard, the curve closes on the first point -----
-  let DRAW = null;
+  // ----- the Pen: click for a corner, click and drag for a curve, close on the first point -----
+  // While drawing, anchors are artboard px: [x, y, inX, inY, outX, outY], handles relative to the anchor.
+  let DRAW = null, EDIT = null;
   const NAV_HINT = $('navHint').textContent;
+  const HINT_DRAW = 'Pen: click for a corner, click and drag for a curve. Click the first point or press Enter to close. Backspace removes the last point, Esc cancels.';
+  const HINT_EDIT = 'Editing points: drag a point or a handle. Click the outline to add a point. Double-click or Option/Alt-click a point to switch corner and curve; Option/Alt-drag a point to pull out new handles, or a handle to break the pair. Delete removes a point. Enter or Esc when done.';
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const hasCurve = (P) => P.some((q) => q[2] || q[3] || q[4] || q[5]);
+  const canClose = (P) => P.length >= 3 || (P.length === 2 && hasCurve(P));
   function setDrawHint() {
-    $('navHint').textContent = DRAW ? 'Drawing: click to add points. Click the first point or press Enter to finish. Backspace removes the last point, Esc cancels.' : NAV_HINT;
-    view.classList.toggle('drawing', !!DRAW);
+    $('navHint').textContent = DRAW ? HINT_DRAW : EDIT ? HINT_EDIT : NAV_HINT;
+    view.classList.toggle('drawing', !!DRAW); view.classList.toggle('pathedit', !!EDIT);
     const pen = $('addChips').querySelector('[data-k="draw"]'); if (pen) pen.setAttribute('aria-pressed', !!DRAW);
+    $('doneEdit').hidden = !EDIT;
+    $('editPts').textContent = EDIT ? 'Done editing points' : 'Edit points';
   }
   function startDraw() {
     if (SC().shapes.length >= 24) return toast('A scene can hold up to 24 layers');
-    DRAW = { pts: [] }; ui.sel = -1; syncScene(); setDrawHint(); drawGizmo();
-    toast('Click points on the artboard to draw a shape');
+    EDIT = null;
+    DRAW = { pts: [], drag: null, hover: null }; ui.sel = -1; syncScene(); setDrawHint(); drawGizmo();
+    toast('Click for corners, click and drag for curves');
   }
   function cancelDraw() { DRAW = null; setDrawHint(); drawGizmo(); }
   function finishDraw() {
     const P = DRAW.pts; DRAW = null; setDrawHint();
-    if (P.length < 3) { toast('A shape needs at least 3 points'); drawGizmo(); return; }
+    if (!canClose(P)) { toast('A shape needs 3 points, or 2 with a curve'); drawGizmo(); return; }
     const sc = SC(), { W, H } = outSize(), aspect = W / H, fr = Comput.framing(sc), { R, U, F } = Comput.camera(sc);
-    // artboard px -> the camera plane through the scene's centre
-    const uv = P.map(([x, y]) => [((x / W) * 2 - 1) * aspect / fr.zoom + fr.panX, (1 - (y / H) * 2) / fr.zoom + fr.panY]);
-    const xs = uv.map((q) => q[0]), ys = uv.map((q) => q[1]);
-    const cu = (Math.min(...xs) + Math.max(...xs)) / 2, cv = (Math.min(...ys) + Math.max(...ys)) / 2;
-    const ext = Math.max(0.02, (Math.max(...xs) - Math.min(...xs)) / 2, (Math.max(...ys) - Math.min(...ys)) / 2);
-    const pts = uv.map(([u, v]) => [Math.round(((u - cu) / ext) * 1000) / 1000, Math.round(((v - cv) / ext) * 1000) / 1000]);
+    // artboard px -> the camera plane through the scene's centre (handles are directions: scale only)
+    const su = (2 * aspect) / (W * fr.zoom), sv = 2 / (H * fr.zoom);
+    const raw = P.map(([x, y, ix, iy, ox, oy]) => [((x / W) * 2 - 1) * aspect / fr.zoom + fr.panX, (1 - (y / H) * 2) / fr.zoom + fr.panY, ix * su, -iy * sv, ox * su, -oy * sv]);
+    const f = Comput.fitPath(raw);
     // it faces the camera: its own x along the camera's right, y along its up, z towards you
     const e = Comput.matToEuler([R[0], U[0], -F[0], R[1], U[1], -F[1], R[2], U[2], -F[2]]);
     const n = sc.shapes.filter((x) => x.type === 'custom').length + 1;
-    sc.shapes.push({ type: 'custom', name: `Drawn ${n}`, pts, x: cu * R[0] + cv * U[0], y: cu * R[1] + cv * U[1], z: cu * R[2] + cv * U[2],
-      size: ext, q: 0.5, w: 1, h: 1, d: 1, round: 0.6, rx: e.rx, ry: e.ry, rz: e.rz });
+    sc.shapes.push({ type: 'custom', name: `Drawn ${n}`, pts: f.pts, x: f.cx * R[0] + f.cy * U[0], y: f.cx * R[1] + f.cy * U[1], z: f.cx * R[2] + f.cy * U[2],
+      size: f.ext, q: 0.5, w: 1, h: 1, d: 1, round: 0.6, rx: e.rx, ry: e.ry, rz: e.rz });
     ui.sel = sc.shapes.length - 1; changed('scene');
+    enterEdit(ui.sel);
+  }
+  const segD = (a, b) => `C${r1(a[0] + a[4])} ${r1(a[1] + a[5])} ${r1(b[0] + b[2])} ${r1(b[1] + b[3])} ${r1(b[0])} ${r1(b[1])}`;
+  const knob = (x, y, k, cls) => `<rect class="${cls}" x="${x - 3.5 * k}" y="${y - 3.5 * k}" width="${7 * k}" height="${7 * k}"/>`;
+  const handleSvg = (ax, ay, hx, hy, k) => (Math.hypot(hx - ax, hy - ay) < 0.5 * k ? '' : `<line class="hl" x1="${ax}" y1="${ay}" x2="${hx}" y2="${hy}"/><circle class="hk" cx="${hx}" cy="${hy}" r="${3.5 * k}"/>`);
+  function overlayFrame() {
+    const { W, H } = outSize(), f = fitBoard(W, H);
+    ov.setAttribute('viewBox', `0 0 ${W} ${H}`); ov.style.width = f.cw + 'px'; ov.style.height = f.ch + 'px';
+    return W / f.cw;
   }
   function drawDrawing() {
-    const { W, H } = outSize(), f = fitBoard(W, H), k = W / f.cw, P = DRAW.pts;
-    ov.setAttribute('viewBox', `0 0 ${W} ${H}`); ov.style.width = f.cw + 'px'; ov.style.height = f.ch + 'px';
+    const k = overlayFrame(), P = DRAW.pts, hv = DRAW.hover;
     let out = '';
-    if (P.length >= 3) out += `<path class="dpath" d="M${Comput.splinePoints(P, 10).map((q) => q.join(' ')).join('L')}Z"/>`;
-    else if (P.length === 2) out += `<path class="dpath" d="M${P[0].join(' ')}L${P[1].join(' ')}"/>`;
-    P.forEach((q, i) => { out += `<circle class="dp${i === 0 ? ' first' : ''}" cx="${q[0]}" cy="${q[1]}" r="${(i === 0 && P.length >= 3 ? 7 : 4) * k}"/>`; });
+    if (P.length) {
+      let d = `M${P[0][0]} ${P[0][1]}`; for (let i = 1; i < P.length; i++) d += segD(P[i - 1], P[i]);
+      out += `<path class="halo" d="${d}"/><path class="dline" d="${d}"/>`;
+      if (hv && !DRAW.drag) {   // where the next segment will go
+        const near = canClose(P) && Math.hypot(hv.x - P[0][0], hv.y - P[0][1]) < 10 * k, a = P[P.length - 1], b = near ? P[0] : [hv.x, hv.y, 0, 0, 0, 0];
+        out += `<path class="rb" d="M${a[0]} ${a[1]}${segD(a, b)}"/>`;
+      }
+      const j = DRAW.drag ? DRAW.drag.i : P.length - 1, q = P[j];
+      out += handleSvg(q[0], q[1], q[0] + q[2], q[1] + q[3], k) + handleSvg(q[0], q[1], q[0] + q[4], q[1] + q[5], k);
+      P.forEach((q, i) => { out += knob(q[0], q[1], i === 0 && canClose(P) ? 1.4 * k : k, i === j ? 'an on' : 'an'); });
+    }
     ov.innerHTML = out;
+  }
+
+  // ----- editing a drawn layer's points -----
+  // The outline lives in the layer's own plane, in its -1..1 units; these map it to and from the artboard.
+  function planeOf(sh) { return { M: Comput.rotMat(sh.rx || 0, sh.ry || 0, sh.rz || 0), w: sh.w ?? 1, h: sh.h ?? 1, s: sh.size }; }
+  function toBoard(sh, u, v) {
+    const { M, w, h, s } = planeOf(sh), lx = u * w * s, ly = v * h * s, { W, H } = outSize();
+    const q = Comput.projectPoint(SC(), sh.x + M[0] * lx + M[1] * ly, sh.y + M[3] * lx + M[4] * ly, sh.z + M[6] * lx + M[7] * ly, W, H);
+    return [q.px, q.py];
+  }
+  function fromBoard(sh, x, y) {
+    const sc = SC(), { W, H } = outSize(), aspect = W / H, fr = Comput.framing(sc), { R, U, F } = Comput.camera(sc), { M, w, h, s } = planeOf(sh);
+    const a = ((x / W) * 2 - 1) * aspect / fr.zoom + fr.panX, b = (1 - (y / H) * 2) / fr.zoom + fr.panY;
+    const N = [M[2], M[5], M[8]], nf = N[0] * F[0] + N[1] * F[1] + N[2] * F[2];
+    if (Math.abs(nf) < 0.08) return null;   // seen edge-on: nothing sensible to drag in
+    const P0 = [a * R[0] + b * U[0], a * R[1] + b * U[1], a * R[2] + b * U[2]];
+    const t = (N[0] * (sh.x - P0[0]) + N[1] * (sh.y - P0[1]) + N[2] * (sh.z - P0[2])) / nf;
+    const d = [P0[0] + t * F[0] - sh.x, P0[1] + t * F[1] - sh.y, P0[2] + t * F[2] - sh.z];
+    return [(M[0] * d[0] + M[3] * d[1] + M[6] * d[2]) / (s * w), (M[1] * d[0] + M[4] * d[1] + M[7] * d[2]) / (s * h)];
+  }
+  // new points for a layer, re-centred so it looks exactly the same on the artboard
+  function setPts(sh, P) {
+    const f = Comput.fitPath(P), { M, w, h, s } = planeOf(sh), lx = f.cx * w * s, ly = f.cy * h * s;
+    sh.x += M[0] * lx + M[1] * ly; sh.y += M[3] * lx + M[4] * ly; sh.z += M[6] * lx + M[7] * ly;
+    sh.size = s * f.ext; sh.pts = f.pts;
+  }
+  const DEF_PTS = [[0, 1], [0.95, 0.3], [0.6, -0.8], [-0.6, -0.8], [-0.95, 0.3]];
+  function enterEdit(i) {
+    const sh = SC().shapes[i]; if (!sh || sh.type !== 'custom') return;
+    if (DRAW) cancelDraw();
+    sh.pts = Comput.toBezier(Array.isArray(sh.pts) && sh.pts.length >= 2 ? sh.pts : DEF_PTS);
+    ui.sel = i; EDIT = { i, sel: -1, added: 0 }; save(); syncScene(); setDrawHint(); drawGizmo();
+  }
+  function endEdit() { EDIT = null; setDrawHint(); drawGizmo(); }
+  function editShape() {
+    if (!EDIT) return null;
+    const sh = SC().shapes[EDIT.i];
+    if (!sh || sh.type !== 'custom' || ui.sel !== EDIT.i || p.source !== 'scene' || ui.mode !== 'single') { EDIT = null; setDrawHint(); return null; }
+    if (!Array.isArray(sh.pts) || !sh.pts.length || sh.pts[0].length < 6) sh.pts = Comput.toBezier(Array.isArray(sh.pts) && sh.pts.length >= 2 ? sh.pts : DEF_PTS);
+    if (EDIT.sel >= sh.pts.length) EDIT.sel = -1;
+    return sh;
+  }
+  function editGeom(sh) {
+    const P = sh.pts;
+    return { P, A: P.map((q) => toBoard(sh, q[0], q[1])), In: P.map((q) => toBoard(sh, q[0] + q[2], q[1] + q[3])), Out: P.map((q) => toBoard(sh, q[0] + q[4], q[1] + q[5])) };
+  }
+  // handles shown: the selected point's and its neighbours'
+  function shownHandles(n) { const j = EDIT.sel; return j < 0 ? [] : [...new Set([j, (j - 1 + n) % n, (j + 1) % n])]; }
+  const live = (q, side) => (side === 'in' ? q[2] || q[3] : q[4] || q[5]);
+  function drawPathEdit(sh) {
+    const k = overlayFrame(), g = editGeom(sh), n = g.P.length, j2 = (i) => (i + 1) % n;
+    let d = `M${r1(g.A[0][0])} ${r1(g.A[0][1])}`;
+    for (let i = 0; i < n; i++) { const b = g.A[j2(i)], c1 = g.Out[i], c2 = g.In[j2(i)]; d += `C${r1(c1[0])} ${r1(c1[1])} ${r1(c2[0])} ${r1(c2[1])} ${r1(b[0])} ${r1(b[1])}`; }
+    let out = `<path class="halo" d="${d}Z"/><path class="dline" d="${d}Z"/>`;
+    for (const i of shownHandles(n)) {
+      if (live(g.P[i], 'in')) out += handleSvg(g.A[i][0], g.A[i][1], g.In[i][0], g.In[i][1], k);
+      if (live(g.P[i], 'out')) out += handleSvg(g.A[i][0], g.A[i][1], g.Out[i][0], g.Out[i][1], k);
+    }
+    g.A.forEach((a, i) => { out += knob(a[0], a[1], k, i === EDIT.sel ? 'an on' : 'an'); });
+    ov.innerHTML = out; ov.style.pointerEvents = 'none';
+  }
+  function hitPath(sh, m) {
+    const g = editGeom(sh), n = g.P.length, tol = 8 * m.k;
+    for (const i of shownHandles(n)) for (const side of ['out', 'in']) {
+      const h = side === 'in' ? g.In[i] : g.Out[i];
+      if (live(g.P[i], side) && Math.hypot(m.x - h[0], m.y - h[1]) < tol) return { kind: 'handle', j: i, side, at: h };
+    }
+    let best = null, bd = tol;
+    g.A.forEach((a, i) => { const dd = Math.hypot(m.x - a[0], m.y - a[1]); if (dd < bd) { bd = dd; best = { kind: 'anchor', j: i, at: a }; } });
+    if (best) return best;
+    bd = 6 * m.k;
+    for (let i = 0; i < n; i++) {
+      const c = [g.A[i], g.Out[i], g.In[(i + 1) % n], g.A[(i + 1) % n]];
+      for (let s = 1; s < 32; s++) { const t = s / 32, q = Comput.bezAt(c, t), dd = Math.hypot(m.x - q[0], m.y - q[1]); if (dd < bd) { bd = dd; best = { kind: 'segment', i, t }; } }
+    }
+    return best;
+  }
+  function toggleCorner(sh, j) {
+    const P = sh.pts.map((q) => q.slice()), n = P.length, q = P[j];
+    if (hasCurve([q])) { q[2] = q[3] = q[4] = q[5] = 0; }
+    else {   // smooth: handles along the line between its neighbours, a third of the way to each
+      const a = P[(j - 1 + n) % n], b = P[(j + 1) % n], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+      const li = Math.hypot(q[0] - a[0], q[1] - a[1]) / 3, lo = Math.hypot(b[0] - q[0], b[1] - q[1]) / 3;
+      q[2] = (-dx / l) * li; q[3] = (-dy / l) * li; q[4] = (dx / l) * lo; q[5] = (dy / l) * lo;
+    }
+    setPts(sh, P);
+  }
+  function deletePoint(sh) {
+    const P = sh.pts.map((q) => q.slice()); P.splice(EDIT.sel, 1);
+    if (!canClose(P)) return toast('A shape needs 3 points, or 2 with a curve');
+    setPts(sh, P); EDIT.sel = Math.min(EDIT.sel, P.length - 1); sceneTouched(false); drawGizmo();
+  }
+  // in and out handles pointing opposite ways: dragging one swings the other
+  const smoothAt = (q) => { const c = q[2] * q[5] - q[3] * q[4], d = q[2] * q[4] + q[3] * q[5], l = Math.hypot(q[2], q[3]) * Math.hypot(q[4], q[5]); return l > 0 && d < 0 && Math.abs(c) < 0.06 * l; };
+  function pathDrag(sh, m, altKey) {
+    const P = sh.pts.map((q) => q.slice()), q = P[gest.j];
+    if (gest.op === 'move') { const L = fromBoard(sh, m.x + gest.off[0], m.y + gest.off[1]); if (!L) return; q[0] = L[0]; q[1] = L[1]; }
+    else if (gest.op === 'handle') {
+      const L = fromBoard(sh, m.x + gest.off[0], m.y + gest.off[1]); if (!L) return;
+      const hx = L[0] - q[0], hy = L[1] - q[1], mine = gest.side === 'out' ? 4 : 2, other = gest.side === 'out' ? 2 : 4;
+      q[mine] = hx; q[mine + 1] = hy;
+      if (gest.mirror && !altKey) { const lo = Math.hypot(q[other], q[other + 1]), l = Math.hypot(hx, hy) || 1; q[other] = (-hx / l) * lo; q[other + 1] = (-hy / l) * lo; }
+    } else if (gest.op === 'alt') {
+      if (!gest.moved && Math.hypot(m.x - gest.x0, m.y - gest.y0) < 3 * m.k) return;
+      gest.moved = true;
+      const L = fromBoard(sh, m.x, m.y); if (!L) return;
+      q[4] = L[0] - q[0]; q[5] = L[1] - q[1]; q[2] = -q[4]; q[3] = -q[5];
+    }
+    setPts(sh, P);
   }
   function drawGizmo() {
     if (DRAW && p.source === 'scene' && ui.mode === 'single') { drawDrawing(); return; }
+    const esh = editShape(); if (esh && !esh.hidden) { drawPathEdit(esh); return; }
     const sel = SEL(), show = p.source === 'scene' && ui.mode === 'single' && sel && !sel.hidden;
     if (!show) { ov.innerHTML = ''; return; }
     const { W, H } = outSize(), f = fitBoard(W, H), k = W / f.cw;
@@ -1111,10 +1256,27 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     if (e.target.closest('button, input')) return;
     if (DRAW && e.button === 0 && !e.shiftKey && !spaceDown) {
       const m = toOut(e), P = DRAW.pts;
-      if (P.length >= 3 && Math.hypot(m.x - P[0][0], m.y - P[0][1]) < 12 * m.k) finishDraw();
-      else { P.push([Math.round(m.x * 10) / 10, Math.round(m.y * 10) / 10]); drawGizmo(); }
-      e.preventDefault(); return;
+      try { view.setPointerCapture(e.pointerId); } catch (err) {}
+      if (canClose(P) && Math.hypot(m.x - P[0][0], m.y - P[0][1]) < 10 * m.k) DRAW.drag = { i: 0, close: true };
+      else if (P.length && Math.hypot(m.x - P[P.length - 1][0], m.y - P[P.length - 1][1]) < 4 * m.k) DRAW.drag = { i: P.length - 1 };   // a double-click: same point
+      else { P.push([r1(m.x), r1(m.y), 0, 0, 0, 0]); DRAW.drag = { i: P.length - 1 }; }
+      DRAW.hover = m; drawGizmo(); e.preventDefault(); return;
     }
+    const esh = e.button === 0 && !e.shiftKey && !spaceDown ? editShape() : null, eh = esh ? hitPath(esh, toOut(e)) : null;
+    if (eh) {
+      const m = toOut(e);
+      try { view.setPointerCapture(e.pointerId); } catch (err) {}
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (eh.kind === 'handle') gest = { kind: 'path', op: 'handle', j: eh.j, side: eh.side, off: [eh.at[0] - m.x, eh.at[1] - m.y], mirror: smoothAt(esh.pts[eh.j]) };
+      else if (eh.kind === 'anchor') { EDIT.sel = eh.j; gest = { kind: 'path', op: e.altKey ? 'alt' : 'move', j: eh.j, off: [eh.at[0] - m.x, eh.at[1] - m.y], x0: m.x, y0: m.y }; }
+      else {   // on the outline: a new point there, without changing the curve
+        const r = Comput.splitPath(esh.pts, eh.i, eh.t); setPts(esh, r.pts); EDIT.sel = r.index; EDIT.added = performance.now();
+        gest = { kind: 'path', op: 'move', j: r.index, off: [0, 0] }; sceneTouched(true);
+      }
+      gest.cx = e.clientX; gest.cy = e.clientY;
+      view.classList.add('grabbing'); drawGizmo(); e.preventDefault(); return;
+    }
+    if (esh && EDIT.sel >= 0) { EDIT.sel = -1; drawGizmo(); }
     try { view.setPointerCapture(e.pointerId); } catch (err) {}
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const m = toOut(e);
@@ -1144,7 +1306,20 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     return best;
   }
   view.addEventListener('pointermove', (e) => {
+    if (DRAW && p.source === 'scene') {
+      const m = toOut(e), d = DRAW.drag; DRAW.hover = m;
+      if (d) {
+        const q = DRAW.pts[d.i], dx = m.x - q[0], dy = m.y - q[1];
+        if (d.moved || Math.hypot(dx, dy) > 3 * m.k) {
+          d.moved = true;
+          if (d.close) { q[2] = r1(-dx); q[3] = r1(-dy); if (!e.altKey) { q[4] = r1(dx); q[5] = r1(dy); } }   // closing: the curve arriving at the first point
+          else { q[4] = r1(dx); q[5] = r1(dy); if (!e.altKey) { q[2] = -q[4]; q[3] = -q[5]; } }
+        }
+      }
+      drawGizmo(); return;
+    }
     if (!gest || !touches.has(e.pointerId)) return;
+    if (gest.kind === 'path') { const sh = editShape(); if (sh) { pathDrag(sh, toOut(e), e.altKey); sceneTouched(true); drawGizmo(); } return; }
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const sc = SC();
     if (gest.kind === 'pinch') {
@@ -1164,7 +1339,25 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     if (gest.kind === 'pan') gest.last = toOut(e);
     sceneTouched(true);
   });
+  view.addEventListener('pointerup', () => {
+    if (!DRAW || !DRAW.drag) return;
+    const d = DRAW.drag; DRAW.drag = null;
+    if (d.close) finishDraw(); else drawGizmo();
+  });
+  view.addEventListener('pointerleave', () => { if (DRAW && !DRAW.drag) { DRAW.hover = null; drawGizmo(); } });
+  view.addEventListener('dblclick', (e) => {
+    if (p.source !== 'scene' || ui.mode !== 'single' || DRAW) return;
+    const m = toOut(e), esh = editShape();
+    if (esh) {
+      const h = hitPath(esh, m);
+      if (h && h.kind === 'anchor') { if (performance.now() - EDIT.added > 600) { toggleCorner(esh, h.j); sceneTouched(false); drawGizmo(); } }
+      else if (!h && pick(m) !== EDIT.i) endEdit();
+      return;
+    }
+    const hit = pick(m); if (hit >= 0 && SC().shapes[hit].type === 'custom') enterEdit(hit);
+  });
   const endGest = (e) => {
+    if (gest && gest.kind === 'path' && gest.op === 'alt' && !gest.moved) { const sh = editShape(); if (sh) toggleCorner(sh, gest.j); }
     touches.delete(e.pointerId);
     if (touches.size === 0 && gest) { gest = null; view.classList.remove('grabbing'); sceneTouched(false); }
     else if (touches.size === 1 && gest && gest.kind === 'pinch') gest = null;
@@ -1187,9 +1380,23 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     if (p.source !== 'scene' || ui.mode !== 'single' || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
     if (DRAW) {
-      if (e.key === 'Enter') finishDraw(); else if (e.key === 'Escape') cancelDraw();
-      else if (e.key === 'Backspace' || e.key === 'Delete') { DRAW.pts.pop(); drawGizmo(); }
+      if (e.key === 'Enter') { if (canClose(DRAW.pts)) finishDraw(); else cancelDraw(); }
+      else if (e.key === 'Escape') cancelDraw();
+      else if (e.key === 'Backspace' || e.key === 'Delete') { DRAW.pts.pop(); DRAW.drag = null; drawGizmo(); }
       else return;
+      e.preventDefault(); return;
+    }
+    const esh = editShape();
+    if (esh) {
+      const kk = e.key;
+      if (kk === 'Enter') endEdit();
+      else if (kk === 'Escape') { if (EDIT.sel >= 0) { EDIT.sel = -1; drawGizmo(); } else endEdit(); }
+      else if (kk === 'Backspace' || kk === 'Delete') { if (EDIT.sel >= 0) deletePoint(esh); }
+      else if (kk.startsWith('Arrow') && EDIT.sel >= 0) {
+        const { W, H } = outSize(), kpx = (W / fitBoard(W, H).cw) * (e.shiftKey ? 10 : 1), a = toBoard(esh, esh.pts[EDIT.sel][0], esh.pts[EDIT.sel][1]);
+        const L = fromBoard(esh, a[0] + (kk === 'ArrowLeft' ? -kpx : kk === 'ArrowRight' ? kpx : 0), a[1] + (kk === 'ArrowUp' ? -kpx : kk === 'ArrowDown' ? kpx : 0));
+        if (L) { const P = esh.pts.map((q) => q.slice()); P[EDIT.sel][0] = L[0]; P[EDIT.sel][1] = L[1]; setPts(esh, P); sceneTouched(false); drawGizmo(); }
+      } else return;
       e.preventDefault(); return;
     }
     const k = e.key.toLowerCase();
@@ -1602,7 +1809,14 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   // those into its own shape settings, and back again when Claude edits an existing scene.
   const numIn = (v, a, b, d) => { v = +v; return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : d; };
   const MAXS = 24, R3 = (v) => Math.round(v * 1000) / 1000;
-  const cleanPts = (a) => { const q = (Array.isArray(a) ? a : []).filter((v) => Array.isArray(v) && v.length === 2).slice(0, 64).map(([u, v]) => [numIn(u, -1.5, 1.5, 0), numIn(v, -1.5, 1.5, 0)]); return q.length >= 3 ? q : undefined; };
+  const cleanPts = (a) => {
+    const all = (Array.isArray(a) ? a : []).filter((v) => Array.isArray(v) && (v.length === 2 || v.length >= 6)).slice(0, 64);
+    if (all.length && all[0].length >= 6) {   // Bezier anchors: x, y, then in and out handles
+      const q = all.filter((v) => v.length >= 6).map((v) => [numIn(v[0], -1.5, 1.5, 0), numIn(v[1], -1.5, 1.5, 0), ...v.slice(2, 6).map((h) => numIn(h, -3, 3, 0))]);
+      return q.length >= 2 ? q : undefined;
+    }
+    const q = all.filter((v) => v.length === 2).map(([u, v]) => [numIn(u, -1.5, 1.5, 0), numIn(v, -1.5, 1.5, 0)]); return q.length >= 3 ? q : undefined;
+  };
   const TYPE_IN = { drawn: 'custom', custom: 'custom', box: 'cube', cube: 'cube', sphere: 'sphere', ellipsoid: 'sphere', cylinder: 'cylinder', disc: 'cylinder', ring: 'ring', torus: 'ring', capsule: 'capsule', pill: 'capsule' };
   function toWorld(sh) {
     const s0 = sh.size, q = sh.q ?? 0.5, w = sh.w ?? 1, h = sh.h ?? 1, d = sh.d ?? 1;
