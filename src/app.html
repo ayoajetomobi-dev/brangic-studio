@@ -456,11 +456,15 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   const D = Comput.DEFAULTS;
   const POS = new Set(Comput.POSITION_KEYS), TONE = new Set(Comput.TONE_KEYS);
   const SIZES = [32, 64, 128, 256, 512, 1024, 2048, 4096];
-  const KEY = 'comput.v2';
+  const KEY = 'comput.v3';
   let p = { ...D };
   let ui = { mode: 'single', view: 'fit', fmt: 'elements', lods: [128, 512, 2048], rspW: 512 };
   try {
     let s = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (!s) { // carry over settings from the last version, moving untouched defaults to the original logo's
+      s = JSON.parse(localStorage.getItem('comput.v2') || 'null');
+      if (s && s.p) { if (s.p.base === 96) s.p.base = D.base; if (s.p.color === '#111111') s.p.color = D.color; }
+    }
     if (!s) { // carry over settings from the first version
       s = JSON.parse(localStorage.getItem('comput.v1') || 'null');
       if (s && s.p) { if (!(s.p.centre < 100)) { s.p.centreMode = 'off'; s.p.centre = D.centre; } }
@@ -1740,7 +1744,9 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     'clustering', 'foreshorten', 'imgEdge', 'imgDetail', 'imgFloor', 'imgContrast', 'imgBrightness', 'imgGamma', 'imgCutoff', 'imgInvert',
     'iLightX', 'iLightY', 'iShadowPacking', 'iRimPacking', 'growth', 'maxMarks'];
   const LOOKS = [
-    { name: 'Ink', look: { color: '#111111', background: 'none', imgInvert: false, markPx: 2.5, ink: 1, lineShare: 0.6, lineLength: 1.9, imgDetail: 0.6 } },
+    // the designer's original logo: every setting from their script (exact at 512 px)
+    { name: 'Original', original: true },
+    { name: 'Ink', look: { color: '#000000', background: 'none', imgInvert: false, markPx: 2.5, ink: 1, lineShare: 0.6, lineLength: 1.9, imgDetail: 0.6 } },
     { name: 'Paper', look: { color: '#121312', background: '#ecedea', imgInvert: false } },
     { name: 'Night', look: { color: '#ffffff', background: '#0a0a0a', imgInvert: true } },
     { name: 'Fine', look: { markPx: 1.6, ink: 1.05, lineShare: 0.55, lineLength: 1.9 } },
@@ -1752,6 +1758,9 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     { name: 'Metal', look: { color: '#ffffff', background: '#0a0a0a', imgInvert: true, markPx: 1.4, ink: 1, imgContrast: 3, imgBrightness: 0.55,
       imgGamma: 1.4, imgFloor: 0.03, imgCutoff: 0.1, imgEdge: 0.3, lineShare: 0.35, lineLength: 1.6, organic: 0.3, wiggle: 4, gap: 6 } },
   ];
+  const ORIGINAL_KEYS = ['base', 'baseMarks', 'grainBase', 'growth', 'minGrain', 'maxMarks', 'lightX', 'lightY', 'shadowPacking', 'rimPacking',
+    'centreMode', 'centre', 'centreReach', 'lineShare', 'lineLength', 'lineWeight', 'direction', 'radialFrom', 'foreshorten', 'organic', 'wiggle',
+    'clustering', 'gap', 'color', 'background', 'seed'];
   const LOOKS_KEY = 'comput.looks';
   const savedLooks = () => { try { return JSON.parse(localStorage.getItem(LOOKS_KEY) || '[]'); } catch (e) { return []; } };
   const putLooks = (l) => { try { localStorage.setItem(LOOKS_KEY, JSON.stringify(l)); } catch (e) { toast('Could not save in this browser'); } };
@@ -1778,6 +1787,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     if (del) { mine.splice(+del.dataset.del, 1); putLooks(mine); drawLooks(); return; }
     const b = e.target.closest('button'); if (!b) return;
     const l = b.dataset.b !== undefined ? LOOKS[+b.dataset.b] : mine[+b.dataset.m]; if (!l) return;
+    if (l.original) { for (const k of ORIGINAL_KEYS) p[k] = D[k]; changed('all'); toast(p.source === 'sphere' ? (p.size === D.base ? 'Look: Original, exactly the original logo' : `Look: Original. Exact at ${D.base} px; other widths adapt the mark size`) : 'Look: Original'); return; }
     Object.assign(p, cleanLook(l.look)); if (p.background !== 'none') lastBg = p.background;
     changed('all'); toast(`Look: ${l.name}`);
   });

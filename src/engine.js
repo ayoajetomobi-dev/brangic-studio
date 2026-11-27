@@ -10,7 +10,7 @@ const Comput = (() => {
   const DEFAULTS = {
     size: 512,
     // scaling law
-    base: 96,            // px size where the logo matches the original script
+    base: 512,           // px size where The Orb is exactly the designer's original logo (4200 marks, each 1/80 of the ball)
     baseMarks: 4200,     // MARKS at base size
     grainBase: 80,       // circle diameter = sphere width / grainBase at base size
     growth: 0.5,         // 0 = grain keeps its pixel size, 1 = grain scales with the logo
@@ -28,7 +28,7 @@ const Comput = (() => {
     organic: 0.6, wiggle: 6, clustering: true,
     gap: 9,              // % of grain (0.5px at the original 5.5px grain)
     // colour
-    color: '#111111', background: 'none', seed: 3,
+    color: '#000000', background: 'none', seed: 3,   // the shared logo: pure black on transparent
     // ---------- illustration (image source) ----------
     source: 'sphere',    // 'sphere' = the logo, 'image' = any picture or render
     markPx: 2.5,         // mark size in px at the chosen output width
