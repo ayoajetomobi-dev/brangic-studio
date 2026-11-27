@@ -763,19 +763,29 @@ const Comput = (() => {
     ring: { label: 'Ring', q: true, bound: 1.4 },
     capsule: { label: 'Capsule', q: true, bound: 2.1 },
   };
-  function shapeSdf(type, q) {
+  // o: the shape itself; w, h, d stretch it along its own x, y, z (1 = as before), round is the
+  // corner radius as a share of its thinnest half-size (cube and cylinder)
+  const dims = (o) => ({ w: Math.max(0.02, o.w ?? 1), h: Math.max(0.02, o.h ?? 1), d: Math.max(0.02, o.d ?? 1) });
+  function shapeSdf(type, q, o = {}) {
+    const { w, h, d } = dims(o);
     switch (type) {
-      case 'cube': { const bx = 0.8, by = 0.8 * (0.25 + 1.5 * q), bz = 0.8, rr = 0.07;
+      case 'cube': {
+        const bx = 0.8 * w, by = 0.8 * (0.25 + 1.5 * q) * h, bz = 0.8 * d, rr = Math.min(bx, by, bz) * Math.min(0.95, Math.max(0, o.round ?? 0.0875));
         return (x, y, z) => { const ax = Math.abs(x) - bx + rr, ay = Math.abs(y) - by + rr, az = Math.abs(z) - bz + rr;
           return Math.hypot(Math.max(ax, 0), Math.max(ay, 0), Math.max(az, 0)) + Math.min(Math.max(ax, ay, az), 0) - rr; }; }
-      case 'cylinder': { const r = 0.8, hh = 0.8 * (0.2 + 1.6 * q), rr = 0.05;
+      case 'cylinder': {
+        const r = 0.8 * w, hh = 0.8 * (0.2 + 1.6 * q) * h, rr = Math.min(r, hh) * Math.min(0.95, Math.max(0, o.round ?? 0.0625));
         return (x, y, z) => { const dx = Math.hypot(x, z) - r + rr, dy = Math.abs(y) - hh + rr;
           return Math.min(Math.max(dx, dy), 0) + Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) - rr; }; }
-      case 'ring': { const R = 0.8, r = 0.08 + 0.4 * q;
+      case 'ring': { const R = 0.8 * w, r = (0.08 + 0.4 * q) * h;
         return (x, y, z) => Math.hypot(Math.hypot(x, z) - R, y) - r; }
-      case 'capsule': { const r = 0.42, hh = 1.4 * q;
+      case 'capsule': { const r = 0.42 * w, hh = 1.4 * q * h;
         return (x, y, z) => { const cy = y - Math.max(-hh, Math.min(hh, y)); return Math.hypot(x, cy, z) - r; }; }
-      default: return (x, y, z) => Math.hypot(x, y, z) - 1;
+      default:
+        if (w === 1 && h === 1 && d === 1) return (x, y, z) => Math.hypot(x, y, z) - 1;
+        // ellipsoid (a close approximation of the distance, exact at the surface)
+        return (x, y, z) => { const k0 = Math.hypot(x / w, y / h, z / d), k1 = Math.hypot(x / (w * w), y / (h * h), z / (d * d));
+          return k1 > 1e-9 ? (k0 * (k0 - 1)) / k1 : -Math.min(w, h, d); };
     }
   }
   function rotMat(rx, ry, rz) {   // degrees, applied X then Y then Z
@@ -804,25 +814,27 @@ const Comput = (() => {
   // where a shape's centre lands on the artboard (px), and how big it looks
   function projectShape(scene, sh, W, H) {
     const q = projectPoint(scene, sh.x, sh.y, sh.z, W, H);
-    return { ...q, r: (sh.size / 2) * H * q.zoom };
+    return { ...q, r: (boundOf(sh) / 2) * H * q.zoom * (sh.type === 'sphere' ? 1 : 0.8) };
   }
   // local half-extents of each shape before scaling (used for the ground height)
-  function shapeExtent(type, q) {
+  function shapeExtent(type, q, o = {}) {
+    const { w, h, d } = dims(o);
     switch (type) {
-      case 'cube': return [0.8, 0.8 * (0.25 + 1.5 * q), 0.8];
-      case 'cylinder': return [0.8, 0.8 * (0.2 + 1.6 * q), 0.8];
-      case 'ring': { const r = 0.08 + 0.4 * q; return [0.8 + r, r, 0.8 + r]; }
-      case 'capsule': return [0.42, 1.4 * q + 0.42, 0.42];
-      default: return [1, 1, 1];
+      case 'cube': return [0.8 * w, 0.8 * (0.25 + 1.5 * q) * h, 0.8 * d];
+      case 'cylinder': return [0.8 * w, 0.8 * (0.2 + 1.6 * q) * h, 0.8 * w];
+      case 'ring': { const r = (0.08 + 0.4 * q) * h; return [0.8 * w + r, r, 0.8 * w + r]; }
+      case 'capsule': return [0.42 * w, 1.4 * q * h + 0.42 * w, 0.42 * w];
+      default: return [w, h, d];
     }
   }
+  const boundOf = (sh) => Math.hypot(...shapeExtent(sh.type, sh.q ?? 0.5, sh)) * sh.size;
   // the ground sits under the lowest point of any shape
   function groundY(scene) {
     let m = Infinity;
     for (const sh of scene.shapes || []) {
-      let ey;
-      if (sh.type === 'sphere') ey = 1;
-      else { const e = shapeExtent(sh.type, sh.q ?? 0.5), M = rotMat(sh.rx || 0, sh.ry || 0, sh.rz || 0); ey = Math.abs(M[3]) * e[0] + Math.abs(M[4]) * e[1] + Math.abs(M[5]) * e[2]; }
+      if (sh.cut) continue;
+      const e = shapeExtent(sh.type, sh.q ?? 0.5, sh), M = rotMat(sh.rx || 0, sh.ry || 0, sh.rz || 0);
+      const ey = sh.type === 'sphere' && e[0] === e[1] && e[1] === e[2] ? e[1] : Math.abs(M[3]) * e[0] + Math.abs(M[4]) * e[1] + Math.abs(M[5]) * e[2];
       m = Math.min(m, sh.y - ey * sh.size);
     }
     return m;
@@ -852,7 +864,7 @@ const Comput = (() => {
     const NX = new Float32Array(n), NY = new Float32Array(n), NZ = new Float32Array(n), SH = new Float32Array(n), AO = new Float32Array(n).fill(1);
     const id = sceneKey(scene, p, w, h);
     const shapes = (scene.shapes || []).map((sh) => ({
-      sh, f: shapeSdf(sh.type, sh.q ?? 0.5), M: rotMat(sh.rx || 0, sh.ry || 0, sh.rz || 0), s: sh.size,
+      sh, f: shapeSdf(sh.type, sh.q ?? 0.5, sh), M: rotMat(sh.rx || 0, sh.ry || 0, sh.rz || 0), s: sh.size, cut: !!sh.cut,
     }));
     const img = { id, name: 'Scene', w, h, lum, alpha, kind, edgeSrc, shadow: SH, ao: AO, normal: { x: NX, y: NY, z: NZ } };
     if (!shapes.length) return img;
@@ -864,15 +876,17 @@ const Comput = (() => {
         // inverse rotation (transpose), then scale
         const lx = (M[0] * dx + M[3] * dy + M[6] * dz) / s, ly = (M[1] * dx + M[4] * dy + M[7] * dz) / s, lz = (M[2] * dx + M[5] * dy + M[8] * dz) / s;
         const e = o.f(lx, ly, lz) * s;
+        if (o.cut) { d = Math.max(d, -e); continue; }          // a cut shape carves away what came before it
         if (k <= 1e-4) d = Math.min(d, e);
         else { const hh = Math.max(0, Math.min(1, 0.5 + (0.5 * (e - d)) / k)); d = e * (1 - hh) + d * hh - k * hh * (1 - hh); }
       }
       return d;
     };
     // bounding sphere of the whole scene, to skip empty rays quickly
-    let bx = 0, by = 0, bz = 0; for (const o of shapes) { bx += o.sh.x; by += o.sh.y; bz += o.sh.z; }
-    bx /= shapes.length; by /= shapes.length; bz /= shapes.length;
-    let br = 0; for (const o of shapes) br = Math.max(br, Math.hypot(o.sh.x - bx, o.sh.y - by, o.sh.z - bz) + o.s * SHAPES[o.sh.type].bound + k);
+    const solid = shapes.filter((o) => !o.cut); if (!solid.length) return img;
+    let bx = 0, by = 0, bz = 0; for (const o of solid) { bx += o.sh.x; by += o.sh.y; bz += o.sh.z; }
+    bx /= solid.length; by /= solid.length; bz /= solid.length;
+    let br = 0; for (const o of solid) br = Math.max(br, Math.hypot(o.sh.x - bx, o.sh.y - by, o.sh.z - bz) + boundOf(o.sh) + k);
     const { F, R, U } = camera(scene);
     let L0 = p.iLightX, L1 = p.iLightY, L2 = 1; { const l = Math.hypot(L0, L1, L2); L0 /= l; L1 /= l; L2 /= l; }
     const LW = [L0 * R[0] + L1 * U[0] - L2 * F[0], L0 * R[1] + L1 * U[1] - L2 * F[1], L0 * R[2] + L1 * U[2] - L2 * F[2]];
@@ -945,7 +959,7 @@ const Comput = (() => {
   // which shape is under an artboard point: cast one ray, take the first surface it meets,
   // or the shape it passed closest to if it misses by less than tolPx
   function pickShape(scene, W, H, px, py, tolPx = 8) {
-    const list = (scene.shapes || []).map((sh) => ({ f: shapeSdf(sh.type, sh.q ?? 0.5), M: rotMat(sh.rx || 0, sh.ry || 0, sh.rz || 0), sh }));
+    const list = (scene.shapes || []).map((sh) => ({ f: shapeSdf(sh.type, sh.q ?? 0.5, sh), M: rotMat(sh.rx || 0, sh.ry || 0, sh.rz || 0), sh }));
     if (!list.length) return -1;
     const { F, R, U } = camera(scene), { zoom, panX, panY } = framing(scene), aspect = W / H;
     const u = (((px / W) * 2 - 1) * aspect) / zoom + panX, v = (1 - (py / H) * 2) / zoom + panY;
@@ -1077,6 +1091,6 @@ const Comput = (() => {
       `<style>${css}</style>` + bgRect(p, V, VH) + groups + `</svg>`;
   }
 
-  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, coverage, pickShape, camera, framing, projectPoint, groundY, rotMat, matToEuler, axisMat, matMul, logoDensity, shapeExtent, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
+  return { DEFAULTS, POSITION_KEYS, TONE_KEYS, coverage, pickShape, boundOf, camera, framing, projectPoint, groundY, rotMat, matToEuler, axisMat, matMul, logoDensity, shapeExtent, diffusionKeep, buildUpSvg, rng, plan, imagePlan, sampleImage, combine, inflate, renderScene, projectShape, aspectOf, SHAPES, SCENES, generate, positions, place, positionsKey, svg, responsiveSvg, thresholds, Cancelled };
 })();
 if (typeof module !== 'undefined') module.exports = Comput;

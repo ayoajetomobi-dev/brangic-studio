@@ -218,6 +218,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         <div class="chips" id="shapeChips"></div>
         <p class="sub" id="shapeHint" style="margin:0"></p>
         <div class="rows" id="shapeRows"></div>
+        <label class="toggle" id="cutRow">Cut it out of the shapes listed before it<input type="checkbox" id="cutShape"></label>
         <div class="pair" id="shapeBtns"><button class="btn ghost sm" id="dupShape">Duplicate</button><button class="btn ghost sm" id="delShape">Remove</button></div>
         <div class="group-t">Describe a scene</div>
         <div id="aiBox" hidden>
@@ -698,13 +699,16 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
       const inp = row.querySelector('input'), out = row.querySelector('output');
       inp.addEventListener('input', () => { const o = getObj(); if (!o) return; o[k] = +inp.value; out.textContent = f(o[k]); onSet(k, true); });
       inp.addEventListener('change', () => onSet(k, false));
-      rows[k] = { row, inp, out, f };
+      rows[k] = { row, inp, out, f, def: defs.find((x) => x[0] === k)[6] ?? 0 };
     }
-    return () => { const o = getObj(); if (!o) return; for (const [k, r] of Object.entries(rows)) { r.inp.value = o[k] ?? 0; r.out.textContent = r.f(o[k] ?? 0); } return rows; };
+    return () => { const o = getObj(); if (!o) return; for (const [k, r] of Object.entries(rows)) { const v = o[k] ?? (typeof r.def === 'function' ? r.def(o) : r.def); r.inp.value = v; r.out.textContent = r.f(v); } return rows; };
   }
   const deg = (v) => `${Math.round(v)}°`;
   const syncShapeRows = rowsFor('shapeRows', [
-    ['size', 'Size', 0.06, 1.2, 0.01, f2], ['q', 'Proportion', 0, 1, 0.01, (v) => `${Math.round(v * 100)}%`],
+    ['size', 'Size', 0.06, 1.5, 0.01, f2],
+    ['w', 'Width', 0.05, 4, 0.01, (v) => `${(+v).toFixed(2)}×`, 1], ['h', 'Height', 0.05, 4, 0.01, (v) => `${(+v).toFixed(2)}×`, 1],
+    ['d', 'Depth', 0.05, 4, 0.01, (v) => `${(+v).toFixed(2)}×`, 1],
+    ['round', 'Rounded corners', 0, 0.95, 0.01, (v) => `${Math.round(v * 100)}%`, (o) => (o.type === 'cylinder' ? 0.0625 : 0.0875)],
     ['x', 'Left / right', -2, 2, 0.01, f2], ['y', 'Down / up', -1.2, 1.2, 0.01, f2], ['z', 'Near / far', -1, 1, 0.01, f2],
     ['rx', 'Tilt', -180, 180, 1, deg], ['ry', 'Turn', -180, 180, 1, deg], ['rz', 'Roll', -180, 180, 1, deg],
   ], SEL, (k, live) => changed('scene', live));
@@ -717,12 +721,13 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   $('addChips').innerHTML = Object.entries(Comput.SHAPES).map(([k, v]) => `<button class="chip" data-k="${k}">+ ${v.label}</button>`).join('');
   $('addChips').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
-    if (SC().shapes.length >= 12) return toast('A scene can hold up to 12 shapes');
+    if (SC().shapes.length >= 24) return toast('A scene can hold up to 24 shapes');
     SC().shapes.push({ type: b.dataset.k, x: 0, y: 0, z: 0, size: 0.35, q: 0.5, rx: 0, ry: 0, rz: 0 });
     ui.sel = SC().shapes.length - 1; changed('scene');
   });
   $('shapeChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; ui.sel = +b.dataset.i; save(); syncScene(); if (single) draw(single); });
-  $('dupShape').addEventListener('click', () => { const s0 = SEL(); if (!s0 || SC().shapes.length >= 12) return; const c = clone(s0); c.x += 0.15; c.y += 0.1; SC().shapes.push(c); ui.sel = SC().shapes.length - 1; changed('scene'); });
+  $('cutShape').addEventListener('change', () => { if (!SEL()) return; SEL().cut = $('cutShape').checked; changed('scene'); });
+  $('dupShape').addEventListener('click', () => { const s0 = SEL(); if (!s0 || SC().shapes.length >= 24) return; const c = clone(s0); c.x += 0.15; c.y += 0.1; SC().shapes.push(c); ui.sel = SC().shapes.length - 1; changed('scene'); });
   $('delShape').addEventListener('click', () => { if (!SEL()) return; SC().shapes.splice(ui.sel, 1); ui.sel = Math.max(0, ui.sel - 1); changed('scene'); });
   const FRAMES = ['1:1', '4:5', '3:2', '16:9'];
   $('frameChips').innerHTML = FRAMES.map((f) => `<button class="chip" data-f="${f}">${f}</button>`).join('');
@@ -750,11 +755,19 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
 
   function syncScene() {
     const sc = SC();
-    $('shapeChips').innerHTML = sc.shapes.map((sh, i) => `<button class="chip" data-i="${i}" aria-pressed="${i === ui.sel}">${i + 1} · ${Comput.SHAPES[sh.type]?.label || sh.type}</button>`).join('') || '';
+    $('shapeChips').innerHTML = sc.shapes.map((sh, i) => `<button class="chip" data-i="${i}" aria-pressed="${i === ui.sel}">${i + 1} · ${sh.cut ? '− ' : ''}${escHtml(sh.name || Comput.SHAPES[sh.type]?.label || sh.type)}</button>`).join('') || '';
     const has = !!SEL();
     $('shapeRows').hidden = $('shapeBtns').hidden = !has;
     $('shapeHint').textContent = has ? 'Drag it on the artboard, or fine-tune it here.' : sc.shapes.length ? 'Click a shape on the artboard or above to edit it.' : 'Add a shape, or start from a ready-made scene.';
-    if (has) { const rows = syncShapeRows(); rows.q.row.hidden = !Comput.SHAPES[SEL().type]?.q; }
+    $('cutRow').hidden = !has;
+    if (has) {
+      const rows = syncShapeRows(), t = SEL().type;
+      // name the stretch sliders by what they do on this shape
+      const L = { cylinder: ['Radius', 'Height', null], ring: ['Radius', 'Thickness', null], capsule: ['Thickness', 'Length', null] }[t] || ['Width', 'Height', 'Depth'];
+      ['w', 'h', 'd'].forEach((k, i) => { rows[k].row.hidden = !L[i]; if (L[i]) rows[k].row.querySelector('label').textContent = L[i]; });
+      rows.round.row.hidden = !(t === 'cube' || t === 'cylinder');
+      $('cutShape').checked = !!SEL().cut;
+    }
     syncCamRows();
     $('frameChips').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.f === sc.aspect));
     drawSaved();
@@ -858,7 +871,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     if (!show) { ov.innerHTML = ''; return; }
     const { W, H } = outSize(), f = fitBoard(W, H), k = W / f.cw;
     ov.setAttribute('viewBox', `0 0 ${W} ${H}`); ov.style.width = f.cw + 'px'; ov.style.height = f.ch + 'px';
-    const c = Comput.projectShape(SC(), sel, W, H), L = sel.size * 1.7 + 0.08;
+    const c = Comput.projectShape(SC(), sel, W, H), L = Comput.boundOf(sel) * 1.1 + 0.06;
     let out = `<circle class="halo" cx="${c.px}" cy="${c.py}" r="${c.r * 1.15}"/><circle class="ring${ui.tool.mode === 'rotate' ? ' solid' : ''}" cx="${c.px}" cy="${c.py}" r="${c.r * 1.15}"/>`;
     for (const a of ['x', 'y', 'z']) {
       const v = AX[a], e = Comput.projectPoint(SC(), sel.x + v[0] * L, sel.y + v[1] * L, sel.z + v[2] * L, W, H), on = ui.tool.axis === a;
@@ -901,7 +914,8 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
       else applyRot(sh, Comput.axisMat(...AX[axis], (dxCss - dyCss) * 0.6));
     } else if (kind === 'scale') {
       const f = Math.exp((dxCss - dyCss) * 0.006);
-      if (axis === 'y' && Comput.SHAPES[sh.type].q) sh.q = Math.max(0, Math.min(1, (sh.q ?? 0.5) * f + (f - 1) * 0.05));
+      const k = { x: 'w', y: 'h', z: 'd' }[axis];   // X / Y / Z stretch the shape along its own width, height, depth
+      if (k) sh[k] = Math.max(0.05, Math.min(4, (sh[k] ?? 1) * f));
       else sh.size = Math.max(0.04, Math.min(1.5, sh.size * f));
     }
   }
@@ -933,7 +947,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   });
   function hitAxis(m) {
     const sel = SEL(); if (!sel) return null;
-    const { W, H } = outSize(), c = Comput.projectShape(SC(), sel, W, H), L = sel.size * 1.7 + 0.08; let best = null, bd = 12 * m.k;
+    const { W, H } = outSize(), c = Comput.projectShape(SC(), sel, W, H), L = Comput.boundOf(sel) * 1.1 + 0.06; let best = null, bd = 12 * m.k;
     for (const a of ['x', 'y', 'z']) { const v = AX[a], e = Comput.projectPoint(SC(), sel.x + v[0] * L, sel.y + v[1] * L, sel.z + v[2] * L, W, H); if (Math.hypot(e.px - c.px, e.py - c.py) < 8 * m.k) continue; const d = Math.hypot(m.x - e.px, m.y - e.py); if (d < bd) { bd = d; best = a; } }
     return best;
   }
@@ -984,7 +998,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     if (k === ' ') { spaceDown = true; return; }
     if (k === 'g' || k === 'm') setTool('move'); else if (k === 'r') setTool('rotate'); else if (k === 's') setTool('scale');
     else if (k === 'x' || k === 'y' || k === 'z') setTool(null, ui.tool.axis === k ? 'free' : k);
-    else if (k === 'escape') setTool(null, 'free');
+    else if (k === 'escape') { if (ui.tool.axis !== 'free') setTool(null, 'free'); else if (ui.sel !== -1) { ui.sel = -1; save(); syncScene(); drawGizmo(); } }
     else if (k === 'f' || k === 'home') resetView();
     else if ((k === 'delete' || k === 'backspace') && SEL()) { SC().shapes.splice(ui.sel, 1); ui.sel = Math.max(0, ui.sel - 1); sceneTouched(false); }
     else if (k === 'd' && e.shiftKey) $('dupShape').click();
@@ -1349,40 +1363,117 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   });
 
   // ================= describe a scene (Claude, in the artifact only) =================
+  // Claude speaks in plain dimensions (width, height, radius...) in scene units; Comput turns
+  // those into its own shape settings, and back again when Claude edits an existing scene.
   const numIn = (v, a, b, d) => { v = +v; return Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : d; };
-  function cleanScene(d) {
-    const shapes = (Array.isArray(d.shapes) ? d.shapes : []).filter((x) => x && Comput.SHAPES[x.type]).slice(0, 12).map((x) => ({
-      type: x.type, x: numIn(x.x, -2, 2, 0), y: numIn(x.y, -1.2, 1.2, 0), z: numIn(x.z, -1, 1, 0), size: numIn(x.size, 0.06, 1.2, 0.35),
-      q: numIn(x.q, 0, 1, 0.5), rx: numIn(x.rx, -180, 180, 0), ry: numIn(x.ry, -180, 180, 0), rz: numIn(x.rz, -180, 180, 0),
-    }));
-    return { aspect: FRAMES.includes(d.aspect) ? d.aspect : '3:2', melt: numIn(d.melt, 0, 0.4, 0), ground: numIn(d.ground, 0, 1, 0.6),
-      yaw: numIn(d.yaw, -180, 180, 0), pitch: numIn(d.pitch, 0, 60, 12), shapes };
+  const MAXS = 24, R3 = (v) => Math.round(v * 1000) / 1000;
+  const TYPE_IN = { box: 'cube', cube: 'cube', sphere: 'sphere', ellipsoid: 'sphere', cylinder: 'cylinder', disc: 'cylinder', ring: 'ring', torus: 'ring', capsule: 'capsule', pill: 'capsule' };
+  function toWorld(sh) {
+    const s0 = sh.size, q = sh.q ?? 0.5, w = sh.w ?? 1, h = sh.h ?? 1, d = sh.d ?? 1;
+    const o = { name: sh.name, type: sh.type === 'cube' ? 'box' : sh.type, x: R3(sh.x), y: R3(sh.y), z: R3(sh.z) };
+    if (sh.type === 'cube') Object.assign(o, { width: R3(1.6 * w * s0), height: R3(1.6 * (0.25 + 1.5 * q) * h * s0), depth: R3(1.6 * d * s0), round: R3(sh.round ?? 0.0875) });
+    else if (sh.type === 'cylinder') Object.assign(o, { radius: R3(0.8 * w * s0), height: R3(1.6 * (0.2 + 1.6 * q) * h * s0), round: R3(sh.round ?? 0.0625) });
+    else if (sh.type === 'ring') Object.assign(o, { radius: R3(0.8 * w * s0), tube: R3((0.08 + 0.4 * q) * h * s0) });
+    else if (sh.type === 'capsule') Object.assign(o, { radius: R3(0.42 * w * s0), length: R3(2 * (1.4 * q * h * s0 + 0.42 * w * s0)) });
+    else Object.assign(o, { width: R3(2 * w * s0), height: R3(2 * h * s0), depth: R3(2 * d * s0) });
+    Object.assign(o, { rx: Math.round(sh.rx || 0), ry: Math.round(sh.ry || 0), rz: Math.round(sh.rz || 0) });
+    if (sh.cut) o.cut = true;
+    return o;
   }
-  let sampleFn = null, aiCtl = null;
-  (window.claude && window.claude.use ? window.claude.use('sample').catch(() => null) : Promise.resolve(null)).then((fn) => {
+  function fromWorld(x) {
+    const type = TYPE_IN[String(x.type || '').toLowerCase()]; if (!type) return null;
+    const L = (v, d) => numIn(v, 0.004, 4, d);
+    const sh = { type, x: numIn(x.x, -3, 3, 0), y: numIn(x.y, -2, 2, 0), z: numIn(x.z, -2, 2, 0), size: 1, q: 0.5,
+      rx: numIn(x.rx, -180, 180, 0), ry: numIn(x.ry, -180, 180, 0), rz: numIn(x.rz, -180, 180, 0) };
+    if (type === 'cube') Object.assign(sh, { w: L(x.width, 0.5) / 1.6, h: L(x.height, 0.5) / 1.6, d: L(x.depth, 0.5) / 1.6, round: numIn(x.round, 0, 0.95, 0.15) });
+    else if (type === 'cylinder') Object.assign(sh, { w: L(x.radius, 0.2) / 0.8, h: L(x.height, 0.3) / 1.6, round: numIn(x.round, 0, 0.95, 0.1) });
+    else if (type === 'ring') Object.assign(sh, { w: L(x.radius, 0.3) / 0.8, h: L(x.tube, 0.06) / 0.28 });
+    else if (type === 'capsule') { const r = L(x.radius, 0.1), len = Math.max(2 * r, L(x.length, 0.5)); Object.assign(sh, { w: r / 0.42, h: Math.max(0, len / 2 - r) / 0.7 }); }
+    else { const r = x.radius != null ? L(x.radius, 0.2) : null; Object.assign(sh, r ? { w: r, h: r, d: r } : { w: L(x.width, 0.4) / 2, h: L(x.height, 0.4) / 2, d: L(x.depth, 0.4) / 2 }); }
+    if (x.cut) sh.cut = true;
+    if (x.name) sh.name = String(x.name).slice(0, 24);
+    return sh;
+  }
+  // accepts Comput's own scene format (saved scenes, the team library) or Claude's plain-dimension one
+  function cleanScene(d) {
+    const raw = Array.isArray(d.shapes) ? d.shapes : [];
+    const plain = raw.some((x) => x && ['width', 'height', 'depth', 'radius', 'length', 'tube'].some((k) => k in x));
+    const shapes = (plain ? raw.map(fromWorld) : raw.filter((x) => x && Comput.SHAPES[x.type]).map((x) => {
+      const o = { type: x.type, x: numIn(x.x, -3, 3, 0), y: numIn(x.y, -2, 2, 0), z: numIn(x.z, -2, 2, 0), size: numIn(x.size, 0.04, 1.5, 0.35),
+        q: numIn(x.q, 0, 1, 0.5), rx: numIn(x.rx, -180, 180, 0), ry: numIn(x.ry, -180, 180, 0), rz: numIn(x.rz, -180, 180, 0) };
+      for (const k of ['w', 'h', 'd']) if (x[k] != null) o[k] = numIn(x[k], 0.02, 4, 1);
+      if (x.round != null) o.round = numIn(x.round, 0, 0.95, 0.1);
+      if (x.cut) o.cut = true; if (x.name) o.name = String(x.name).slice(0, 24);
+      return o;
+    })).filter(Boolean).slice(0, MAXS);
+    return { aspect: FRAMES.includes(d.aspect) ? d.aspect : '4:5', melt: numIn(d.melt, 0, 0.4, 0), ground: numIn(d.ground, 0, 1, 0.6),
+      yaw: numIn(d.yaw, -180, 180, 0), pitch: numIn(d.pitch, 0, 80, 12), zoom: numIn(d.zoom, 0.2, 8, 1), panX: numIn(d.panX, -4, 4, 0), panY: numIn(d.panY, -4, 4, 0), shapes };
+  }
+  let sampleFn = null, aiCtl = null, aiSees = false, aiTier = 'default';
+  (window.claude && window.claude.use ? window.claude.use('sample').catch(() => null) : Promise.resolve(null)).then(async (fn) => {
     sampleFn = fn; $('aiBox').hidden = !fn;
-    if (fn) $('aiNote').textContent = 'Claude builds the scene from the shapes above, on your Claude account. You can then edit it.';
+    if (!fn) return;
+    const lim = await fn.limits().catch(() => null);
+    aiSees = !!(lim && lim.images); aiTier = !lim || !lim.modelTiers || lim.modelTiers.includes('complex') ? 'complex' : 'default';
+    $('aiNote').textContent = 'Claude models the object from the shape library, then looks at the result and corrects it. It uses your Claude account and can take a minute.';
   });
-  const AI_GUIDE = `You compose abstract 3D scenes for a brand illustration tool. Reply with only JSON in this shape:
-{"aspect":"1:1|4:5|3:2|16:9","melt":0,"ground":0.6,"yaw":0,"pitch":12,"light":{"x":-0.3,"y":0.5},
- "shapes":[{"type":"sphere|cube|cylinder|ring|capsule","x":0,"y":0,"z":0,"size":0.35,"q":0.5,"rx":0,"ry":0,"rz":0}]}
-Space: y is up. The frame is 2 units tall (y from -1 to 1) and 2*aspect wide (x from -aspect to aspect). z is depth, towards the camera is positive, keep it within -1..1. Keep every shape fully inside the frame with a margin.
-Shapes, all scaled by size: sphere radius = size. cube: half-width 0.8*size, half-height 0.8*size*(0.25+1.5q) (q 0.5 = cube). cylinder: vertical, radius 0.8*size, half-height 0.8*size*(0.2+1.6q). ring: a torus lying flat (axis vertical), radius 0.8*size, tube 0.08+0.4q (times size); rx 90 stands it up facing the camera. capsule: vertical pill, radius 0.42*size, half-length 1.4*q*size; rz tilts it in the picture plane.
-rx, ry, rz are degrees. melt 0-0.4 blends nearby shapes into soft blobs. ground 0-1 is the strength of the shadow on the ground. yaw turns the camera (degrees), pitch 0-60 tilts it to look down. light x,y (-1..1) is where the light comes from on screen.
-Use at most 8 shapes. Compose with clear negative space and simple, bold forms. Shapes resting on each other should touch, not float or overlap far.`;
+  const AI_GUIDE = `You are a product and set designer working in Comput, a tool that draws 3D forms as a field of small marks: dense marks for shadow and edges, sparse marks where the light falls. You build the subject from simple solids, the way an industrial designer blocks out a form before detailing it.
+
+Reply with only JSON in this shape:
+{"aspect":"4:5","yaw":-25,"pitch":15,"zoom":1,"ground":0.6,"melt":0,"light":{"x":-0.4,"y":0.6},
+ "shapes":[{"name":"body","type":"box","x":0,"y":0,"z":0,"width":0.7,"height":1.4,"depth":0.08,"round":0.9,"rx":0,"ry":0,"rz":0}]}
+
+Units and space: one scene unit. y is up, x is right, z points towards the camera. The frame is 2 units tall (y from -1 to 1) and 2*aspect wide. The subject should fill about 70-85% of the frame height, centred, fully in frame.
+Shape types and their dimensions (full sizes, not half sizes):
+- box: width (x), height (y), depth (z), round 0-0.95 = corner radius as a share of its thinnest half-size (0.9 makes a slab with fully rounded edges).
+- cylinder: radius, height along its y axis, round 0-0.95 for the rim. rx 90 points its axis at the camera (a lens, a button, a coin).
+- sphere: radius, or width/height/depth for an ellipsoid.
+- ring: a torus; radius to the centre of the tube, tube = tube thickness. Lies flat by default; rx 90 stands it up facing the camera.
+- capsule: a pill along its y axis; radius and total length.
+- Any shape can have "cut": true. A cut shape carves itself out of everything listed before it: use it for screens set into a body, holes, grooves, lens wells, the hollow of a cup. List cuts after the shapes they cut.
+rx, ry, rz: rotation in degrees about the shape's own x, then y, then z axis.
+Camera and light: yaw turns the camera around the subject (try -20 to -40 for a three-quarter view that shows depth), pitch 0-80 looks down from above, zoom > 1 moves in. light x,y (-1..1) is where the light comes from on screen; top-left reads best. ground 0-1 is the strength of the shadow on the floor (0 for floating objects). melt 0-0.4 fuses shapes into soft blobs: keep it 0 for manufactured objects.
+
+How to model well:
+1. First decide the real-world proportions of the subject and keep them (a phone is about 0.47 wide : 1 tall : 0.05 deep; a mug is about as tall as it is wide).
+2. Break it into its main parts, then the details that make it recognisable at a glance (for a phone: rounded slab body, the screen set slightly into the front, the camera bump with two or three lenses and a flash, side buttons). Use as many parts as the subject needs, up to ${MAXS}.
+3. Parts that belong together must touch or overlap slightly. Nothing floats unless asked. Thin details need real depth (at least 0.01) to show.
+4. Choose a camera angle that shows the recognisable features: if they are on the back, turn the object so the back faces the camera (ry 180).
+Name every part.`;
+  const aiPrompt = (want) => `${AI_GUIDE}\n\nThe current scene, in the same format; edit it if the request is a change, otherwise start fresh:\n${JSON.stringify({ aspect: SC().aspect, yaw: SC().yaw, pitch: SC().pitch, zoom: SC().zoom ?? 1, ground: SC().ground, melt: SC().melt, light: { x: p.iLightX, y: p.iLightY }, shapes: SC().shapes.map(toWorld) })}\n\nWhat the designer wants: ${want}`;
+  function applyAiScene(d) {
+    const sc = cleanScene(d || {});
+    if (!sc.shapes.length) throw { code: 'empty' };
+    p.scene = sc; if (d.light) { p.iLightX = numIn(d.light.x, -1, 1, p.iLightX); p.iLightY = numIn(d.light.y, -1, 1, p.iLightY); }
+    ui.sel = -1; changed('scene');
+  }
+  // what the live preview shows right now, on a solid background, for Claude to look at
+  async function snapshot() {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const gl = $('gl'); if (!gl.classList.contains('on') || !gl.width) return null;
+    const c = document.createElement('canvas'); c.width = gl.width; c.height = gl.height; const x = c.getContext('2d');
+    x.fillStyle = p.background === 'none' ? '#ffffff' : p.background; x.fillRect(0, 0, c.width, c.height); x.drawImage(gl, 0, 0);
+    return new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+  }
   $('aiGo').addEventListener('click', async () => {
     const want = $('aiText').value.trim(); if (!sampleFn) return; if (!want) return toast('Describe the scene first');
-    aiCtl = new AbortController(); $('aiGo').disabled = true; $('aiStop').disabled = false; $('aiNote').textContent = 'Thinking…';
+    aiCtl = new AbortController(); $('aiGo').disabled = true; $('aiStop').disabled = false;
     try {
-      const prompt = `${AI_GUIDE}\n\nThe current scene, which you may edit or replace:\n${JSON.stringify({ ...SC(), light: { x: p.iLightX, y: p.iLightY } })}\n\nWhat the designer wants: ${want}`;
-      const d = await sampleFn.json(prompt, { signal: aiCtl.signal });
-      const sc = cleanScene(d || {});
-      if (!sc.shapes.length) throw { code: 'empty' };
-      p.scene = sc; if (d.light) { p.iLightX = numIn(d.light.x, -1, 1, p.iLightX); p.iLightY = numIn(d.light.y, -1, 1, p.iLightY); }
-      ui.sel = 0; changed('scene'); $('aiNote').textContent = 'Done. Drag the shapes or describe a change.';
+      $('aiNote').textContent = 'Designing the object…';
+      const first = await sampleFn.json(aiPrompt(want), { signal: aiCtl.signal, modelTier: aiTier });
+      applyAiScene(first);
+      const shot = aiSees ? await snapshot() : null;
+      if (shot) {
+        $('aiNote').textContent = 'Looking at the result and refining it…';
+        const check = `${AI_GUIDE}\n\nThe designer asked for: ${want}\n\nYou produced this scene:\n${JSON.stringify(first)}\n\nThe attached image is how Comput drew it: black marks pile up in shadow and along edges, lit areas stay sparse. Look at it critically, as the designer would. Does it read instantly as what was asked for? Check the proportions, missing or misplaced parts, parts that float or sink into each other, the camera angle, and the framing (too small, cut off, off-centre). Then reply with the complete corrected scene in the same JSON format. If it is already right, return it unchanged.`;
+        const second = await sampleFn.json(check, { signal: aiCtl.signal, modelTier: aiTier, images: [shot] });
+        applyAiScene(second);
+      }
+      $('aiNote').textContent = 'Done. Edit the parts on the artboard, or describe a change.';
     } catch (e) {
       const c = e && e.code;
       if (c === 'not_granted' || c === 'sampling_disabled' || c === 'capability_disabled' || c === 'not_declared') { $('aiBox').hidden = true; $('aiNote').textContent = 'Claude is not available for this artifact.'; }
+      else if (c === 'images_unavailable' || c === 'image_rejected') { aiSees = false; $('aiNote').textContent = 'Built it, but Claude could not look at the result in this view.'; }
       else $('aiNote').textContent = { cancelled: 'Stopped.', rate_limited: 'Too many requests. Try again in a minute.', invalid_json: 'Claude did not return a scene. Try rephrasing.',
         empty: 'Claude did not return any shapes. Try rephrasing.', refused: 'Claude declined that request. Try rephrasing.' }[c] || 'Something went wrong. Try again.';
     } finally { $('aiGo').disabled = false; $('aiStop').disabled = true; aiCtl = null; }

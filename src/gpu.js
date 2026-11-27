@@ -11,7 +11,7 @@
  * The exact render replaces it a moment after you stop.
  */
 const ComputGPU = (() => {
-  const MAX = 12, TILE_N = 4096;
+  const MAX = 24, TILE_N = 4096;
 
   const VS_FULL = `#version 300 es
 in vec2 aP; void main(){ gl_Position = vec4(aP, 0., 1.); }`;
@@ -20,24 +20,28 @@ in vec2 aP; void main(){ gl_Position = vec4(aP, 0., 1.); }`;
 precision highp float;
 uniform vec2 uRes; uniform float uAspect, uZoom; uniform vec2 uPan;
 uniform vec3 uF, uR, uU, uLW, uLC;
-uniform int uN; uniform vec4 uPS[${MAX}]; uniform vec4 uPT[${MAX}]; uniform mat3 uM[${MAX}];
+uniform int uN; uniform vec4 uPS[${MAX}]; uniform vec4 uPT[${MAX}]; uniform vec4 uDM[${MAX}]; uniform mat3 uM[${MAX}];
 uniform float uMelt, uGround, uGY, uSP, uRP, uInvert, uEdge; uniform vec4 uBS;
 out vec4 o;
-float sdShape(int t, float q, vec3 p){
-  if (t == 1) { vec3 b = vec3(0.8, 0.8 * (0.25 + 1.5 * q), 0.8); float rr = 0.07; vec3 a = abs(p) - b + rr;
+float sdShape(int t, float q, vec4 dm, vec3 p){
+  float w = dm.x, h = dm.y, dd = dm.z, rd = dm.w;
+  if (t == 1) { vec3 b = vec3(0.8 * w, 0.8 * (0.25 + 1.5 * q) * h, 0.8 * dd); float rr = min(b.x, min(b.y, b.z)) * rd; vec3 a = abs(p) - b + rr;
     return length(max(a, 0.)) + min(max(a.x, max(a.y, a.z)), 0.) - rr; }
-  if (t == 2) { float r = 0.8, hh = 0.8 * (0.2 + 1.6 * q), rr = 0.05; vec2 d = vec2(length(p.xz) - r + rr, abs(p.y) - hh + rr);
+  if (t == 2) { float r = 0.8 * w, hh = 0.8 * (0.2 + 1.6 * q) * h, rr = min(r, hh) * rd; vec2 d = vec2(length(p.xz) - r + rr, abs(p.y) - hh + rr);
     return min(max(d.x, d.y), 0.) + length(max(d, 0.)) - rr; }
-  if (t == 3) { float R = 0.8, r = 0.08 + 0.4 * q; return length(vec2(length(p.xz) - R, p.y)) - r; }
-  if (t == 4) { float hh = 1.4 * q; vec3 c = p; c.y -= clamp(c.y, -hh, hh); return length(c) - 0.42; }
-  return length(p) - 1.;
+  if (t == 3) { float R = 0.8 * w, r = (0.08 + 0.4 * q) * h; return length(vec2(length(p.xz) - R, p.y)) - r; }
+  if (t == 4) { float hh = 1.4 * q * h; vec3 c = p; c.y -= clamp(c.y, -hh, hh); return length(c) - 0.42 * w; }
+  if (abs(w - 1.) + abs(h - 1.) + abs(dd - 1.) < 1e-4) return length(p) - 1.;
+  vec3 r3 = vec3(w, h, dd); float k0 = length(p / r3), k1 = length(p / (r3 * r3));
+  return k1 > 1e-9 ? k0 * (k0 - 1.) / k1 : -min(w, min(h, dd));
 }
 float map(vec3 p){
   float d = 1e9, k = max(1e-4, uMelt);
   for (int i = 0; i < ${MAX}; i++) {
     if (i >= uN) break;
     vec3 l = (uM[i] * (p - uPS[i].xyz)) / uPS[i].w;
-    float e = sdShape(int(uPT[i].x), uPT[i].y, l) * uPS[i].w;
+    float e = sdShape(int(uPT[i].x), uPT[i].y, uDM[i], l) * uPS[i].w;
+    if (uPT[i].z > 0.5) { d = max(d, -e); continue; }
     if (uMelt <= 1e-4) d = min(d, e);
     else { float h = clamp(0.5 + 0.5 * (e - d) / k, 0., 1.); d = mix(e, d, h) - k * h * (1. - h); }
   }
@@ -221,17 +225,20 @@ void main(){
         const { F, R, U: Up } = C.camera(scene), { zoom, panX, panY } = C.framing(scene);
         let L0 = p.iLightX, L1 = p.iLightY, L2 = 1; const ll = Math.hypot(L0, L1, L2); L0 /= ll; L1 /= ll; L2 /= ll;
         const LW = [L0 * R[0] + L1 * Up[0] - L2 * F[0], L0 * R[1] + L1 * Up[1] - L2 * F[1], L0 * R[2] + L1 * Up[2] - L2 * F[2]];
-        const PS = new Float32Array(MAX * 4), PT = new Float32Array(MAX * 4), M = new Float32Array(MAX * 9);
-        let bx = 0, by = 0, bz = 0; shapes.forEach((s) => { bx += s.x; by += s.y; bz += s.z; }); bx /= shapes.length; by /= shapes.length; bz /= shapes.length;
+        const PS = new Float32Array(MAX * 4), PT = new Float32Array(MAX * 4), DM = new Float32Array(MAX * 4), M = new Float32Array(MAX * 9);
+        const solid = shapes.filter((s) => !s.cut), sl = solid.length || 1;
+        let bx = 0, by = 0, bz = 0; solid.forEach((s) => { bx += s.x; by += s.y; bz += s.z; }); bx /= sl; by /= sl; bz /= sl;
         let br = 0; const k = Math.max(1e-4, scene.melt || 0);
+        const defRound = { cube: 0.0875, cylinder: 0.0625 };
         shapes.forEach((s, i) => {
-          PS.set([s.x, s.y, s.z, s.size], 4 * i); PT.set([TYPES[s.type] ?? 0, s.q ?? 0.5, 0, 0], 4 * i);
+          PS.set([s.x, s.y, s.z, s.size], 4 * i); PT.set([TYPES[s.type] ?? 0, s.q ?? 0.5, s.cut ? 1 : 0, 0], 4 * i);
+          DM.set([Math.max(0.02, s.w ?? 1), Math.max(0.02, s.h ?? 1), Math.max(0.02, s.d ?? 1), Math.min(0.95, Math.max(0, s.round ?? defRound[s.type] ?? 0))], 4 * i);
           M.set(C.rotMat(s.rx || 0, s.ry || 0, s.rz || 0), 9 * i);   // row-major upload = transpose = the inverse rotation
-          br = Math.max(br, Math.hypot(s.x - bx, s.y - by, s.z - bz) + s.size * C.SHAPES[s.type].bound + k);
+          if (!s.cut) br = Math.max(br, Math.hypot(s.x - bx, s.y - by, s.z - bz) + C.boundOf(s) + k);
         });
         gl.uniform2f(U(P1, 'uRes'), rw, rh); gl.uniform1f(U(P1, 'uAspect'), aspect); gl.uniform1f(U(P1, 'uZoom'), zoom); gl.uniform2f(U(P1, 'uPan'), panX, panY);
         gl.uniform3fv(U(P1, 'uF'), F); gl.uniform3fv(U(P1, 'uR'), R); gl.uniform3fv(U(P1, 'uU'), Up); gl.uniform3fv(U(P1, 'uLW'), LW); gl.uniform3f(U(P1, 'uLC'), L0, L1, L2);
-        gl.uniform1i(U(P1, 'uN'), shapes.length); gl.uniform4fv(U(P1, 'uPS'), PS); gl.uniform4fv(U(P1, 'uPT'), PT); gl.uniformMatrix3fv(U(P1, 'uM'), false, M);
+        gl.uniform1i(U(P1, 'uN'), shapes.length); gl.uniform4fv(U(P1, 'uPS'), PS); gl.uniform4fv(U(P1, 'uPT'), PT); gl.uniform4fv(U(P1, 'uDM'), DM); gl.uniformMatrix3fv(U(P1, 'uM'), false, M);
         gl.uniform1f(U(P1, 'uMelt'), scene.melt || 0); gl.uniform1f(U(P1, 'uGround'), scene.ground ?? 0.6); gl.uniform1f(U(P1, 'uGY'), C.groundY(scene) - 0.004);
         gl.uniform1f(U(P1, 'uSP'), p.iShadowPacking); gl.uniform1f(U(P1, 'uRP'), p.iRimPacking); gl.uniform1f(U(P1, 'uInvert'), p.imgInvert ? 1 : 0); gl.uniform1f(U(P1, 'uEdge'), p.imgEdge);
         gl.uniform4f(U(P1, 'uBS'), bx, by, bz, br);
