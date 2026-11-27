@@ -2242,6 +2242,8 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     }
     if (s) { p = { ...D, ...s.p }; ui = { ...ui, ...s.ui }; }
   } catch (e) {}
+  // Comput always opens on the Logo tab; every other setting is kept as it was left
+  p.source = 'logo'; if (ui.mode === 'motion') ui.mode = 'single'; if (p.size > 10000) p.size = 10000;
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ p, ui })); } catch (e) {} queueHistory(); };
   // ---------- undo / redo ----------
   // A snapshot of every setting (including the scene) is kept once a change settles:
