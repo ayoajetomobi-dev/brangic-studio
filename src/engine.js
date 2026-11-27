@@ -30,6 +30,7 @@ const Comput = (() => {
     gap: 9,              // % of grain (0.5px at the original 5.5px grain)
     // colour
     color: '#000000', background: 'none', seed: 3,   // the shared logo: pure black on transparent
+    logoColor: '#000000', logoBg: 'none',            // the Logo tab's own colours (the app's; the engine ignores them)
     // ---------- illustration (image source) ----------
     source: 'sphere',    // 'sphere' = the logo, 'image' = any picture or render
     markPx: 2.5,         // mark size in px at the chosen output width
