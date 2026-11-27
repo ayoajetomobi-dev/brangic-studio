@@ -285,7 +285,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
 
       <section class="mod" data-src="image scene">
         <div class="mod-h"><span class="lab">Tone</span><span class="lab mute">Light and shadow</span></div>
-        <p class="sub" id="toneNote" style="margin:0">Lit by Comput with the logo's light, shadow and rim. Move the light in the Light panel.</p>
+        <p class="sub" id="toneNote" style="margin:0">Lit by Comput with The Orb's light, shadow and rim. Move the light in the Light panel.</p>
         <div class="rows" id="toneRows"></div>
         <label class="toggle">Light marks on dark (marks follow the light)<input type="checkbox" id="invert"></label>
         <label class="toggle">Remove plain background<input type="checkbox" id="knockout"></label>
@@ -377,7 +377,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
       </div>
       <div class="bar"><i id="bar"></i></div>
       <div class="view" id="view">
-        <div class="board" id="board"><span class="tag lab" id="boardTag"></span><canvas id="cv"></canvas><canvas id="gl"></canvas><svg id="ov" aria-hidden="true"></svg><img id="rspImg" alt="Responsive sphere logo preview" hidden></div>
+        <div class="board" id="board"><span class="tag lab" id="boardTag"></span><canvas id="cv"></canvas><canvas id="gl"></canvas><svg id="ov" aria-hidden="true"></svg><img id="rspImg" alt="Responsive preview" hidden></div>
       </div>
       <div class="stage-foot">
         <div class="reads" id="reads"></div>
@@ -537,7 +537,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   }
   const syncs = [
     seg('diffSeg', [['off', 'Off'], ['cross', 'Cross'], ['hamburger', 'Hamburger']], () => p.centreMode, (v) => { p.centreMode = v; changed('centreMode'); }),
-    seg('srcSeg', [['sphere', 'Logo'], ['scene', 'Scene'], ['image', 'Picture']], () => p.source, (v) => {
+    seg('srcSeg', [['sphere', 'The Orb'], ['scene', 'Scene'], ['image', 'Picture']], () => p.source, (v) => {
       p.source = v;
       if (v === 'scene' && !['burst', 'follow', 'rings', 'flow'].includes(p.imgDirection)) p.imgDirection = 'burst';
       changed('source');
@@ -1165,7 +1165,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     if (scn) syncScene();
     $('sceneBar').hidden = !(scn && ui.mode === 'single');
     if (!gpuLive()) { showExact(); if (typeof ov !== 'undefined') ov.innerHTML = ''; }
-    $('nHint').textContent = { none: 'Add a 3D form so pills follow the surface and Comput can light it like the logo.',
+    $('nHint').textContent = { none: 'Add a 3D form so pills follow the surface and Comput can light it like The Orb.',
       inflate: 'Rounds out the outline, as if the shape were inflated. Works best with a cut-out PNG. No 3D software needed.',
       file: 'A normal map from 3D software, framed exactly like the picture.' }[p.normalSource] || '';
     $('toneNote').hidden = !lit;
