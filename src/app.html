@@ -232,16 +232,17 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         <div class="field"><input id="size" type="number" min="16" max="10000" step="1" inputmode="numeric" aria-label="Output size in pixels"><span class="unit">PX</span></div>
         <div class="chips" id="sizeChips"></div>
         <p class="sub" data-src="sphere">Bigger sizes get more, smaller 0s and 1s, so the texture holds at any scale.</p>
-        <p class="sub" data-src="logo">This is the size of the file you export, in pixels. The preview always shrinks the logo to fit your screen, so it looks the same size; what changes is the grain: bigger files get more, finer 0s and 1s. Click <b>1:1</b> above the logo to see it at true size.</p>
+        <p class="sub" data-src="logo">The size of the file you export, in pixels. Every size is the same logo, mark for mark, just bigger or smaller, so it looks identical at 64 px and at 10K. The preview always fits your screen; click <b>1:1</b> above it to see true size.</p>
       </section>
 
       <section class="mod" data-src="logo">
         <div class="mod-h"><span class="lab">Logo</span><span class="lab mute">Locked to the original</span></div>
-        <p class="sub" style="margin:0">The logo exactly as the designer made it. Nothing here changes its light, shadow, density or arrangement.</p>
+        <p class="sub" style="margin:0">The logo exactly as the designer made it, drawn once and scaled to any size. Nothing here changes its light, shadow, density or arrangement.</p>
         <ol class="steps"><li>Choose a <b>size</b> above (or type one, up to 10,000 px).</li><li>Choose a <b>colourway</b> below.</li><li><b>Export</b> under the logo: SVG or PNG.</li></ol>
         <div class="group-t">Colourway</div>
         <div class="chips" id="logoChips"></div>
-        <p class="sub" style="margin:0">For print and posters, export the SVG For web or a PNG. Above 4K, the For Figma file holds hundreds of thousands of shapes and Figma may struggle with it.</p>
+        <p class="sub" style="margin:0">Every size has the same 22,400 marks, so the SVG is the same small file (about 0.4 MB) at any size and opens easily in Figma or Illustrator.</p>
+        <p class="sub" style="margin:0"><b>Below 256 px, use the PNG.</b> At those sizes each mark is smaller than a pixel, and apps draw such tiny marks in an SVG too light or too dark. The PNG is drawn large and averaged down, so it keeps the logo's exact tone.</p>
       </section>
 
       <section class="mod" data-nologo>
@@ -478,6 +479,19 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     return Object.assign(o, { source: 'sphere', color: p.logoColor, background: p.logoBg, maxMarks: LOGO_MAX_MARKS });
   }
   const CK = () => (p.source === 'logo' ? ['logoColor', 'logoBg'] : ['color', 'background']);
+  // The Logo tab draws ONE master logo (the 512 px particle look) and scales that exact drawing to the
+  // size asked for, so every size is identical: same marks, same places, same tone, only bigger or smaller.
+  const LOGO_MASTER = 512;
+  function scaleResult(r, size) {
+    const k = size / r.width, sc = (a) => { const o = new Float64Array(a.length); for (let i = 0; i < a.length; i++) o[i] = a[i] * k; return o; };
+    return { ...r, size, width: size, height: Math.round(r.height * k), x: sc(r.x), y: sc(r.y), half: sc(r.half),
+      rad: r.rad * k, lw: r.lw * k, grain: r.grain * k, plan: { ...r.plan, size, grain: r.plan.grain * k, radius: r.plan.radius * k } };
+  }
+  async function genAt(size, args) {
+    if (p.source !== 'logo') return ENG.gen({ p, size, ...args });
+    const r = await ENG.gen({ ...args, p: eng(), size: LOGO_MASTER, opt: { ...(args.opt || {}), draft: false } });
+    return scaleResult(r, size);
+  }
   const fileKind = () => ({ sphere: 'orb', logo: 'logo', scene: 'scene' }[p.source] || 'illustration');
   const POS = new Set(Comput.POSITION_KEYS), TONE = new Set(Comput.TONE_KEYS);
   const SIZES = [32, 64, 128, 256, 512, 1024, 2048, 4096];
@@ -1630,7 +1644,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
       const srcs = source();
       for (let i = 0; i < sizes.length; i++) {
         const label = live ? 'Refining' : draft ? 'Preview' : still ? 'Computing' : `Level ${i + 1}/${sizes.length}`;
-        const r = await ENG.gen({ p: eng(), size: sizes[i], opt: { draft }, ...srcs, g: my,
+        const r = await genAt(sizes[i], { opt: { draft }, ...srcs, g: my,
           onProgress: (f) => { if (performance.now() - t0 > 120) busy(true, `${label} · ${Math.round(((i + f) / sizes.length) * 100)}%`, (i + f) / sizes.length); } });
         if (cancelled()) return;
         out.push(r);
@@ -1781,7 +1795,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   async function fullResults(sizes) {
     const out = [];
     const srcs = source();
-    for (const s of sizes) out.push(await ENG.gen({ p: eng(), size: s, ...srcs, keep: true }));
+    for (const s of sizes) out.push(await genAt(s, { ...srcs, keep: true }));
     return out;
   }
   $('export').addEventListener('click', async () => {
@@ -1799,7 +1813,24 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
     new DataView(tail.buffer).setUint32(0, crc32([tb, data]));
     return [head, data, tail];
   }
+  // small sizes: the marks are smaller than a pixel, so draw big and average down in exact halvings
+  // (each one a 2x2 box filter); the PNG then keeps the logo's true tone at 64 px as at 10K
+  async function smallPng(r, E) {
+    const W = r.width, H = r.height, ss = 2 ** Math.ceil(Math.log2(2048 / W));
+    let cv = document.createElement('canvas'); cv.width = W * ss; cv.height = H * ss;
+    let ctx = cv.getContext('2d'); ctx.setTransform(ss, 0, 0, ss, 0, 0);
+    if (E.background !== 'none') { ctx.fillStyle = E.background; ctx.fillRect(0, 0, W, H); }
+    paintMarks(ctx, r, null, { color: E.color });
+    for (let w = W * ss, h = H * ss; w > W; ) {
+      w /= 2; h /= 2;
+      const nx = document.createElement('canvas'); nx.width = w; nx.height = h;
+      const c2 = nx.getContext('2d'); c2.imageSmoothingEnabled = true; c2.imageSmoothingQuality = 'medium';
+      c2.drawImage(cv, 0, 0, w, h); cv = nx;
+    }
+    return await new Promise((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error('PNG failed'))), 'image/png'));
+  }
   async function pngOf(r, E, onProgress) {
+    if (r.width < 1024) return smallPng(r, E);
     const W = r.width, H = r.height, rows = Math.max(1, Math.min(H, Math.floor(6e6 / W)));
     const cv = document.createElement('canvas'); cv.width = W; cv.height = rows;
     const ctx = cv.getContext('2d', { willReadFrequently: true });
