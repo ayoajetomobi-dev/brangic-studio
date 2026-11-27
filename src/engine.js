@@ -40,7 +40,8 @@ const Comput = (() => {
     imgInvert: false,    // false: dark areas get marks (ink on paper); true: light areas get marks (light on black)
     imgFloor: 0.08,      // sparse marks even in the lightest parts of a shape, so the form still reads
     imgEdge: 0.6,        // extra packing along outlines, like the rim of the logo
-    imgKnockout: true,   // leave a plain backdrop around the subject empty (photos without transparency)
+    imgKnockout: true,
+    imgDetail: 0.6,      // local contrast in the picture before marks are placed: crisper relief and lettering, same overall tone   // leave a plain backdrop around the subject empty (photos without transparency)
     imgDirection: 'flow',// 'flow' along shapes, 'across' through shapes, 'radial', 'vertical';
                          // with a normal map also 'burst' (like the logo), 'follow' (pole to pole), 'rings'
     imgLight: 'light',   // with a 3D form: tone from Comput's own 'light' (the logo's), the 'render', or a 'mix'
@@ -381,7 +382,7 @@ const Comput = (() => {
   // =================== illustration from an image ===================
   // img = { id, w, h, lum: Float32Array (0 black … 1 white), alpha: Float32Array (0 … 1) }
 
-  const TONE_KEYS = ['imgBrightness', 'imgContrast', 'imgCutoff', 'imgGamma', 'imgInvert', 'imgFloor', 'imgEdge',
+  const TONE_KEYS = ['imgBrightness', 'imgContrast', 'imgCutoff', 'imgGamma', 'imgInvert', 'imgFloor', 'imgEdge', 'imgDetail',
     'imgLight', 'iLightX', 'iLightY', 'iShadowPacking', 'iRimPacking'];
   const toneKey = (p) => TONE_KEYS.map((k) => p[k]).join('|');
 
@@ -399,8 +400,17 @@ const Comput = (() => {
     { const ln = Math.hypot(L0, L1, L2); L0 /= ln; L1 /= ln; L2 /= ln; }
     const SP = p.iShadowPacking, RP = p.iRimPacking, LT = 1 + SP + RP;
     const logoLight = NM && p.imgLight === 'light';
+    // Detail: lift local contrast (the picture minus a soft blur of itself), so relief, edges and
+    // lettering separate from their surroundings while the overall tone stays where it was
+    let L = img.lum;
+    if (p.imgDetail > 0) {
+      const r = Math.max(1, Math.round(0.015 * Math.max(w, h)));
+      if (!img._blur || img._blurR !== r) { const B = Float32Array.from(img.lum); boxBlur(B, w, h, r); boxBlur(B, w, h, r); img._blur = B; img._blurR = r; }
+      const B = img._blur, k = p.imgDetail * 1.6; L = new Float32Array(n);
+      for (let i = 0; i < n; i++) L[i] = Math.min(1, Math.max(0, img.lum[i] + k * (img.lum[i] - B[i])));
+    }
     for (let i = 0; i < n; i++) {
-      let t = p.imgInvert ? img.lum[i] : 1 - img.lum[i];       // tone that should carry marks
+      let t = p.imgInvert ? L[i] : 1 - L[i];                   // tone that should carry marks
       if (logoLight) {
         // the logo's model, untouched by the photo tone controls (see imagePlan for the count)
         if (img.kind && img.kind[i] === 2) { C[i] = img.alpha[i] * 0.9; continue; }   // scene ground: shadow only

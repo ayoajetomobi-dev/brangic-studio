@@ -471,6 +471,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
       ['centreReach', 'Spread', 0, 100, 1, pct],
     ],
     toneRows: [
+      ['imgDetail', 'Detail', 0, 2, 0.01, f2],
       ['imgBrightness', 'Brightness', -1, 1, 0.01, f2],
       ['imgContrast', 'Contrast', 0, 3, 0.01, f2],
       ['imgGamma', 'Shadow weight', 0.4, 3, 0.01, f2],
@@ -1164,7 +1165,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
       inflate: 'Rounds out the outline, as if the shape were inflated. Works best with a cut-out PNG. No 3D software needed.',
       file: 'A normal map from 3D software, framed exactly like the picture.' }[p.normalSource] || '';
     $('toneNote').hidden = !lit;
-    for (const k of ['imgBrightness', 'imgContrast', 'imgGamma', 'imgFloor', 'imgCutoff']) inputs[k].row.hidden = lit;
+    for (const k of ['imgBrightness', 'imgContrast', 'imgGamma', 'imgFloor', 'imgCutoff', 'imgDetail']) inputs[k].row.hidden = lit;
     $('nFlip').checked = !!p.normalFlipY;
     inputs.foreshorten.row.hidden = !(radialLogo || form);
     $('fromSeg').hidden = $('fromSeg').previousElementSibling.hidden = !radialLogo;
@@ -1370,10 +1371,10 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
   // A look is the shared style: colours, marks and the illustration light. It never touches the
   // logo's own geometry, light or diffusion.
   const LOOK_KEYS = ['color', 'background', 'markPx', 'ink', 'lineShare', 'lineLength', 'lineWeight', 'wiggle', 'gap', 'organic',
-    'clustering', 'foreshorten', 'imgEdge', 'imgFloor', 'imgContrast', 'imgBrightness', 'imgGamma', 'imgCutoff', 'imgInvert',
+    'clustering', 'foreshorten', 'imgEdge', 'imgDetail', 'imgFloor', 'imgContrast', 'imgBrightness', 'imgGamma', 'imgCutoff', 'imgInvert',
     'iLightX', 'iLightY', 'iShadowPacking', 'iRimPacking', 'growth'];
   const LOOKS = [
-    { name: 'Ink', look: { color: '#111111', background: 'none', imgInvert: false, markPx: 2.5, ink: 1, lineShare: 0.6, lineLength: 1.9 } },
+    { name: 'Ink', look: { color: '#111111', background: 'none', imgInvert: false, markPx: 2.5, ink: 1, lineShare: 0.6, lineLength: 1.9, imgDetail: 0.6 } },
     { name: 'Paper', look: { color: '#121312', background: '#ecedea', imgInvert: false } },
     { name: 'Night', look: { color: '#ffffff', background: '#0a0a0a', imgInvert: true } },
     { name: 'Fine', look: { markPx: 1.6, ink: 1.05, lineShare: 0.55, lineLength: 1.9 } },
