@@ -1,0 +1,18 @@
+# Comput relay Worker. Deploy from this folder with: npx wrangler deploy
+# The API key is a secret, set once with: npx wrangler secret put ANTHROPIC_API_KEY
+name = "comput-relay"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ALLOWED_ORIGINS = "https://brangic.studio,https://www.brangic.studio"
+
+# at most 6 requests a minute per visitor (one Describe a scene uses up to 3)
+[[ratelimits]]
+name = "LIMITER"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 6
+  period = 60

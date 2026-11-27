@@ -9,7 +9,7 @@ Generator for the brand's 0/1 graphics: circles are 0s, pills are 1s. Output is 
 - **Speed:** the engine runs in a background worker, so the page never waits on it. In Scene mode a GPU preview (`src/gpu.js`) draws the same lighting and 0/1 marks live at full frame rate while you work; the exact render replaces it a moment after you stop.
 - **Looks:** built-in looks (Ink, Paper, Night, Fine, Bold) and your own. Export saved looks and scenes as one `comput-library.json` for the team, and import it on another computer.
 - **Motion:** Build up, Light orbit, Diffusion (logo) and Turn (scenes). Frames start from the previous frame's marks so they drift smoothly. Export as video (MP4 or WebM, depending on the browser), a ZIP of SVG frames, or for Build up one animated SVG.
-- **Describe a scene:** in the Claude artifact only, Claude's most capable model builds the object from the shape library in real proportions; a fast, inexpensive model checks the render, and the capable model runs again only to fix what the check found. The public site has no AI connection.
+- **Describe a scene:** in the Claude artifact it runs on the viewer's own Claude account; on brangic.studio it goes through the relay Worker in `relay/` (Cloudflare), which keeps the API key as a secret, writes the prompts itself (`src/prompts.js`, shared with the page), allows only brangic.studio and limits each visitor to 6 requests a minute. Claude's most capable model builds the object from the shape library in real proportions; a fast, inexpensive model checks the render, and the capable model runs again only to fix what the check found. The public site has no AI connection.
 - **Picture:** any picture or 3D render turned into 0s and 1s. Dark areas pack tight, light areas stay sparse, outlines get extra packing, and pills follow the shapes. Cut-out PNGs with transparent backgrounds work best.
   - **3D form** (optional): *Inflate* rounds out any flat cut-out shape, no 3D software needed; or load a *normal map* exported from 3D software. Pills then follow the surface (Burst, Follow, Rings, like the logo), shorten towards the edges, and Comput can light the object with the logo's own light, shadow and rim model. Illustrations keep their own light, separate from the logo's.
 
@@ -18,4 +18,6 @@ Generator for the brand's 0/1 graphics: circles are 0s, pills are 1s. Output is 
 - `src/app.html` is the interface, `src/worker.js` runs the engine off the page, `src/gpu.js` is the live scene preview.
 - `src/build.sh` puts the engine into the page and writes `docs/comput/index.html` (served by GitHub Pages) and `comput.html` (the Claude artifact version).
 
-After editing anything in `src/`, run `src/build.sh`, then commit and push. Pages republishes on its own.
+After editing anything in `src/`, run `src/build.sh`, then commit and push. Pages republishes on its own. If you changed `src/prompts.js`, also redeploy the relay: `cd relay && npx wrangler deploy`.
+
+The relay's API key is set once with `cd relay && npx wrangler secret put ANTHROPIC_API_KEY` (paste the key when asked; it is never stored in this repo).
