@@ -95,6 +95,19 @@ input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset
 .thumb { width: 64px; height: 64px; flex: none; border-radius: 14px; object-fit: contain; background: var(--board); outline: 1px solid var(--rule) }
 .imgbtns { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 }
 .chip .x { margin-left: 6px; opacity: .6 }
+/* layers: top of the list is drawn first; a cut carves the layers above it */
+.layers { display: flex; flex-direction: column; border: 1px solid var(--ink); border-radius: 14px; overflow: hidden; max-height: 280px; overflow-y: auto }
+.layer { display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px; font-size: 12px; cursor: pointer; border-top: 1px solid var(--rule) }
+.layer:first-child { border-top: 0 }
+.layer[aria-selected=true] { background: var(--ink); color: var(--panel) }
+.layer .eye { width: 24px; height: 24px; border-radius: 50%; border: 0; background: transparent; color: inherit; display: grid; place-items: center; padding: 0; cursor: pointer; flex: none }
+.layer .eye svg { width: 15px; height: 15px }
+.layer .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.layer .ty { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; opacity: .6; white-space: nowrap }
+.layer.off .nm, .layer.off .ty { opacity: .35 }
+.layer:focus-visible, .layer .eye:focus-visible { outline: 1px dashed currentColor; outline-offset: -3px }
+.lbtns { display: flex; gap: 6px; flex-wrap: wrap }
+.lbtns .btn { flex: 1 }
 .view.scene canvas { cursor: grab; touch-action: none } .view.scene.grabbing canvas { cursor: grabbing }
 .dropping .view { outline: 2px dashed var(--ink); outline-offset: -10px }
 .light { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 16px; align-items: center }
@@ -214,12 +227,16 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         <div class="chips" id="presetChips"></div>
         <div class="group-t">Add a shape</div>
         <div class="chips" id="addChips"></div>
-        <div class="group-t">Shapes</div>
-        <div class="chips" id="shapeChips"></div>
+        <div class="group-t">Layers</div>
+        <div class="layers" id="shapeChips" role="listbox" aria-label="Layers"></div>
         <p class="sub" id="shapeHint" style="margin:0"></p>
+        <div class="lbtns" id="shapeBtns">
+          <button class="btn ghost sm" id="upShape" title="Move layer up">Up</button><button class="btn ghost sm" id="downShape" title="Move layer down">Down</button>
+          <button class="btn ghost sm" id="dupShape" title="Duplicate (Shift+D)">Duplicate</button><button class="btn ghost sm" id="delShape" title="Remove (Delete)">Remove</button>
+        </div>
+        <div class="field" id="nameRow"><span class="unit">NAME</span><input id="shapeName" type="text" maxlength="24" spellcheck="false" aria-label="Layer name"></div>
         <div class="rows" id="shapeRows"></div>
-        <label class="toggle" id="cutRow">Cut it out of the shapes listed before it<input type="checkbox" id="cutShape"></label>
-        <div class="pair" id="shapeBtns"><button class="btn ghost sm" id="dupShape">Duplicate</button><button class="btn ghost sm" id="delShape">Remove</button></div>
+        <label class="toggle" id="cutRow">Cut it out of the layers above<input type="checkbox" id="cutShape"></label>
         <div class="group-t">Describe a scene</div>
         <div id="aiBox" hidden>
           <textarea class="ask" id="aiText" aria-label="Describe a scene" placeholder="A tall pill leaning against a big ring, lit from the top right"></textarea>
@@ -2098,6 +2115,8 @@ void main(){
   if (!p.scene || !Array.isArray(p.scene.shapes)) p.scene = clone(Comput.SCENES['zero-one'].scene);
   ui.sel = Math.max(-1, Math.min(ui.sel ?? 0, p.scene.shapes.length - 1));
   const SC = () => p.scene, SEL = () => p.scene.shapes[ui.sel];
+  // the scene as drawn: hidden layers left out
+  const VIS = (sc = SC()) => ({ ...sc, shapes: sc.shapes.filter((s) => !s.hidden) });
   function rowsFor(host, defs, getObj, onSet) {
     const el = $(host), rows = {};
     for (const [k, label, min, max, step, f] of defs) {
@@ -2134,7 +2153,29 @@ void main(){
     SC().shapes.push({ type: b.dataset.k, x: 0, y: 0, z: 0, size: 0.35, q: 0.5, rx: 0, ry: 0, rz: 0 });
     ui.sel = SC().shapes.length - 1; changed('scene');
   });
-  $('shapeChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; ui.sel = +b.dataset.i; save(); syncScene(); if (single) draw(single); });
+  const EYE_ON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/></svg>', EYE_OFF = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z" opacity=".45"/><path d="M2.5 13.5l11-11"/></svg>';
+  function toggleLayer(i) { const sh = SC().shapes[i]; if (!sh) return; sh.hidden = !sh.hidden; changed('scene'); }
+  $('shapeChips').addEventListener('click', (e) => {
+    const eye = e.target.closest('[data-eye]'); if (eye) { toggleLayer(+eye.dataset.eye); return; }
+    const row = e.target.closest('[data-i]'); if (!row) return;
+    ui.sel = +row.dataset.i; save(); syncScene(); drawGizmo();
+  });
+  $('shapeChips').addEventListener('keydown', (e) => {
+    const row = e.target.closest('[data-i]'); if (!row || e.target.closest('[data-eye]')) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ui.sel = +row.dataset.i; save(); syncScene(); drawGizmo(); }
+  });
+  function moveLayer(dir) {
+    const L = SC().shapes, i = ui.sel, j = i + dir; if (!L[i] || j < 0 || j >= L.length) return;
+    [L[i], L[j]] = [L[j], L[i]]; ui.sel = j; changed('scene');
+  }
+  $('upShape').addEventListener('click', () => moveLayer(-1));
+  $('downShape').addEventListener('click', () => moveLayer(1));
+  // renaming only touches the list, not the picture
+  $('shapeName').addEventListener('input', () => {
+    const sh = SEL(); if (!sh) return; const v = $('shapeName').value.trim().slice(0, 24);
+    if (v) sh.name = v; else delete sh.name;
+    save(); drawLayers();
+  });
   $('cutShape').addEventListener('change', () => { if (!SEL()) return; SEL().cut = $('cutShape').checked; changed('scene'); });
   $('dupShape').addEventListener('click', () => { const s0 = SEL(); if (!s0 || SC().shapes.length >= 24) return; const c = clone(s0); c.x += 0.15; c.y += 0.1; SC().shapes.push(c); ui.sel = SC().shapes.length - 1; changed('scene'); });
   $('delShape').addEventListener('click', () => { if (!SEL()) return; SC().shapes.splice(ui.sel, 1); ui.sel = Math.max(0, ui.sel - 1); changed('scene'); });
@@ -2162,13 +2203,26 @@ void main(){
     p.scene = clone(s0.scene); Object.assign(p, s0.light || {}); ui.sel = 0; changed('scene'); toast(`Opened ${s0.name}`);
   });
 
+  function drawLayers() {
+    const sc = SC();
+    $('shapeChips').innerHTML = sc.shapes.map((sh, i) => {
+      const nm = escHtml(sh.name || Comput.SHAPES[sh.type]?.label || sh.type), ty = (sh.cut ? 'Cut · ' : '') + (sh.type === 'cube' ? 'Box' : Comput.SHAPES[sh.type]?.label || sh.type);
+      return `<div class="layer${sh.hidden ? ' off' : ''}" role="option" tabindex="0" data-i="${i}" aria-selected="${i === ui.sel}">` +
+        `<button class="eye" data-eye="${i}" aria-label="${sh.hidden ? 'Show' : 'Hide'} ${nm}" title="${sh.hidden ? 'Show' : 'Hide'} (H)">${sh.hidden ? EYE_OFF : EYE_ON}</button>` +
+        `<span class="nm">${nm}</span><span class="ty">${ty}</span></div>`;
+    }).join('');
+    $('shapeChips').hidden = !sc.shapes.length;
+  }
   function syncScene() {
     const sc = SC();
-    $('shapeChips').innerHTML = sc.shapes.map((sh, i) => `<button class="chip" data-i="${i}" aria-pressed="${i === ui.sel}">${i + 1} · ${sh.cut ? '− ' : ''}${escHtml(sh.name || Comput.SHAPES[sh.type]?.label || sh.type)}</button>`).join('') || '';
+    drawLayers();
     const has = !!SEL();
-    $('shapeRows').hidden = $('shapeBtns').hidden = !has;
-    $('shapeHint').textContent = has ? 'Drag it on the artboard, or fine-tune it here.' : sc.shapes.length ? 'Click a shape on the artboard or above to edit it.' : 'Add a shape, or start from a ready-made scene.';
-    $('cutRow').hidden = !has;
+    $('shapeRows').hidden = !has; $('shapeBtns').hidden = !sc.shapes.length;
+    $('dupShape').disabled = $('delShape').disabled = !has;
+    $('shapeHint').textContent = has ? (SEL().hidden ? 'This layer is hidden. Click its eye to show it.' : 'Drag it on the artboard, or fine-tune it here.') : sc.shapes.length ? 'Click a layer, or a shape on the artboard, to edit it.' : 'Add a shape, or start from a ready-made scene.';
+    $('cutRow').hidden = $('nameRow').hidden = !has;
+    if (has && document.activeElement !== $('shapeName')) $('shapeName').value = SEL().name || '';
+    $('upShape').disabled = !has || ui.sel <= 0; $('downShape').disabled = !has || ui.sel >= sc.shapes.length - 1;
     if (has) {
       const rows = syncShapeRows(), t = SEL().type;
       // name the stretch sliders by what they do on this shape
@@ -2224,7 +2278,7 @@ void main(){
   // what the engine works from: nothing (logo), a rendered scene, or a picture
   function sceneRaster() { const a = Comput.aspectOf(SC().aspect), w = a >= 1 ? 560 : Math.round(560 * a); return { w, h: Math.round(w / a) }; }
   function source(sc) {
-    if (p.source === 'scene') { const r = sceneRaster(); return { src: { kind: 'scene', scene: sc || SC(), w: r.w, h: r.h } }; }
+    if (p.source === 'scene') { const r = sceneRaster(); return { src: { kind: 'scene', scene: VIS(sc || SC()), w: r.w, h: r.h } }; }
     if (p.source === 'image') return { image: effImage() };
     return {};
   }
@@ -2245,7 +2299,7 @@ void main(){
     const { W, H } = outSize(), f = fitBoard(W, H), gl = $('gl'), cv = $('cv');
     gl.style.width = f.cw + 'px'; gl.style.height = f.ch + 'px';
     cv.style.width = f.cw + 'px'; cv.style.height = f.ch + 'px';
-    try { gpu.render({ C: Comput, scene: SC(), p, W, H, pw: f.pw, ph: f.ph }); } catch (e) { console.warn(e); gpu = null; return; }
+    try { gpu.render({ C: Comput, scene: VIS(), p, W, H, pw: f.pw, ph: f.ph }); } catch (e) { console.warn(e); gpu = null; return; }
     gl.classList.add('on'); cv.style.visibility = 'hidden';
     $('boardTag').textContent = `${W} × ${H} PX · VIEW ${Math.round(f.vs * 100)}% · LIVE`;
     drawGizmo();
@@ -2273,10 +2327,12 @@ void main(){
   function toOut(e) { const { W, H } = outSize(), b = boardRect(); return { x: ((e.clientX - b.left) / b.width) * W, y: ((e.clientY - b.top) / b.height) * H, k: W / b.width }; }
   function pick(m) {
     const { W, H } = outSize();
-    return Comput.pickShape(SC(), W, H, m.x, m.y, 10 * m.k);
+    const idx = SC().shapes.map((s, i) => (s.hidden ? -1 : i)).filter((i) => i >= 0);
+    const hit = Comput.pickShape(VIS(), W, H, m.x, m.y, 10 * m.k);
+    return hit < 0 ? -1 : idx[hit];
   }
   function drawGizmo() {
-    const sel = SEL(), show = p.source === 'scene' && ui.mode === 'single' && sel;
+    const sel = SEL(), show = p.source === 'scene' && ui.mode === 'single' && sel && !sel.hidden;
     if (!show) { ov.innerHTML = ''; return; }
     const { W, H } = outSize(), f = fitBoard(W, H), k = W / f.cw;
     ov.setAttribute('viewBox', `0 0 ${W} ${H}`); ov.style.width = f.cw + 'px'; ov.style.height = f.ch + 'px';
@@ -2355,7 +2411,7 @@ void main(){
     view.classList.add('grabbing'); drawGizmo(); e.preventDefault();
   });
   function hitAxis(m) {
-    const sel = SEL(); if (!sel) return null;
+    const sel = SEL(); if (!sel || sel.hidden) return null;
     const { W, H } = outSize(), c = Comput.projectShape(SC(), sel, W, H), L = Comput.boundOf(sel) * 1.1 + 0.06; let best = null, bd = 12 * m.k;
     for (const a of ['x', 'y', 'z']) { const v = AX[a], e = Comput.projectPoint(SC(), sel.x + v[0] * L, sel.y + v[1] * L, sel.z + v[2] * L, W, H); if (Math.hypot(e.px - c.px, e.py - c.py) < 8 * m.k) continue; const d = Math.hypot(m.x - e.px, m.y - e.py); if (d < bd) { bd = d; best = a; } }
     return best;
@@ -2411,6 +2467,7 @@ void main(){
     else if (k === 'f' || k === 'home') resetView();
     else if ((k === 'delete' || k === 'backspace') && SEL()) { SC().shapes.splice(ui.sel, 1); ui.sel = Math.max(0, ui.sel - 1); sceneTouched(false); }
     else if (k === 'd' && e.shiftKey) $('dupShape').click();
+    else if (k === 'h' && SEL()) toggleLayer(ui.sel);
     else if (k.startsWith('arrow') && SEL()) {
       const st = e.shiftKey ? 0.1 : 0.02, sh = SEL(), { R, U } = Comput.camera(SC());
       const du = k === 'arrowleft' ? -st : k === 'arrowright' ? st : 0, dv = k === 'arrowup' ? st : k === 'arrowdown' ? -st : 0;
@@ -2547,7 +2604,7 @@ void main(){
       const still = ui.mode !== 'responsive';
       const sizes = still ? [p.size] : ui.lods.slice().sort((a, b) => a - b), out = [];
       const t0 = performance.now();
-      if (p.source === 'scene' && !SC().shapes.length) {
+      if (p.source === 'scene' && !VIS().shapes.length) {
         single = null; rspResults = []; const cv = $('cv'); cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
         reads(); busy(false, 'Add a shape to start'); return;
       }
@@ -2787,6 +2844,7 @@ void main(){
     else Object.assign(o, { width: R3(2 * w * s0), height: R3(2 * h * s0), depth: R3(2 * d * s0) });
     Object.assign(o, { rx: Math.round(sh.rx || 0), ry: Math.round(sh.ry || 0), rz: Math.round(sh.rz || 0) });
     if (sh.cut) o.cut = true;
+    if (sh.hidden) o.hidden = true;
     return o;
   }
   function fromWorld(x) {
@@ -2800,6 +2858,7 @@ void main(){
     else if (type === 'capsule') { const r = L(x.radius, 0.1), len = Math.max(2 * r, L(x.length, 0.5)); Object.assign(sh, { w: r / 0.42, h: Math.max(0, len / 2 - r) / 0.7 }); }
     else { const r = x.radius != null ? L(x.radius, 0.2) : null; Object.assign(sh, r ? { w: r, h: r, d: r } : { w: L(x.width, 0.4) / 2, h: L(x.height, 0.4) / 2, d: L(x.depth, 0.4) / 2 }); }
     if (x.cut) sh.cut = true;
+    if (x.hidden) sh.hidden = true;
     if (x.name) sh.name = String(x.name).slice(0, 24);
     return sh;
   }
@@ -2812,19 +2871,20 @@ void main(){
         q: numIn(x.q, 0, 1, 0.5), rx: numIn(x.rx, -180, 180, 0), ry: numIn(x.ry, -180, 180, 0), rz: numIn(x.rz, -180, 180, 0) };
       for (const k of ['w', 'h', 'd']) if (x[k] != null) o[k] = numIn(x[k], 0.02, 4, 1);
       if (x.round != null) o.round = numIn(x.round, 0, 0.95, 0.1);
-      if (x.cut) o.cut = true; if (x.name) o.name = String(x.name).slice(0, 24);
+      if (x.cut) o.cut = true; if (x.hidden) o.hidden = true; if (x.name) o.name = String(x.name).slice(0, 24);
       return o;
     })).filter(Boolean).slice(0, MAXS);
     return { aspect: FRAMES.includes(d.aspect) ? d.aspect : '4:5', melt: numIn(d.melt, 0, 0.4, 0), ground: numIn(d.ground, 0, 1, 0.6),
       yaw: numIn(d.yaw, -180, 180, 0), pitch: numIn(d.pitch, 0, 80, 12), zoom: numIn(d.zoom, 0.2, 8, 1), panX: numIn(d.panX, -4, 4, 0), panY: numIn(d.panY, -4, 4, 0), shapes };
   }
-  let sampleFn = null, aiCtl = null, aiSees = false, aiTier = 'default';
+  let sampleFn = null, aiCtl = null, aiSees = false, aiTier = 'default', aiCheckTier = 'quick';
   (window.claude && window.claude.use ? window.claude.use('sample').catch(() => null) : Promise.resolve(null)).then(async (fn) => {
     sampleFn = fn; $('aiBox').hidden = !fn;
     if (!fn) return;
     const lim = await fn.limits().catch(() => null);
     aiSees = !!(lim && lim.images); aiTier = !lim || !lim.modelTiers || lim.modelTiers.includes('complex') ? 'complex' : 'default';
-    $('aiNote').textContent = 'Claude models the object from the shape library, then looks at the result and corrects it. It uses your Claude account and can take a minute.';
+    aiCheckTier = !lim || !lim.modelTiers || lim.modelTiers.includes('quick') ? 'quick' : 'default';
+    $('aiNote').textContent = 'Claude\'s most capable model builds the object from the shape library; a faster, cheaper model checks the render, and the capable one fixes only what it finds. Uses your Claude account and can take a minute.';
   });
   const AI_GUIDE = `You are a product and set designer working in Comput, a tool that draws 3D forms as a field of small marks: dense marks for shadow and edges, sparse marks where the light falls. You build the subject from simple solids, the way an industrial designer blocks out a form before detailing it.
 
@@ -2839,6 +2899,7 @@ Shape types and their dimensions (full sizes, not half sizes):
 - sphere: radius, or width/height/depth for an ellipsoid.
 - ring: a torus; radius to the centre of the tube, tube = tube thickness. Lies flat by default; rx 90 stands it up facing the camera.
 - capsule: a pill along its y axis; radius and total length.
+- Any shape can have "hidden": true; keep hidden layers as they are unless asked.
 - Any shape can have "cut": true. A cut shape carves itself out of everything listed before it: use it for screens set into a body, holes, grooves, lens wells, the hollow of a cup. List cuts after the shapes they cut.
 rx, ry, rz: rotation in degrees about the shape's own x, then y, then z axis.
 Camera and light: yaw turns the camera around the subject (try -20 to -40 for a three-quarter view that shows depth), pitch 0-80 looks down from above, zoom > 1 moves in. light x,y (-1..1) is where the light comes from on screen; top-left reads best. ground 0-1 is the strength of the shadow on the floor (0 for floating objects). melt 0-0.4 fuses shapes into soft blobs: keep it 0 for manufactured objects.
@@ -2871,14 +2932,24 @@ Name every part.`;
       $('aiNote').textContent = 'Designing the object…';
       const first = await sampleFn.json(aiPrompt(want), { signal: aiCtl.signal, modelTier: aiTier });
       applyAiScene(first);
+      // A fast, inexpensive model looks at the render and lists what is wrong. The capable model
+      // runs again only when there is something to fix, and it gets the list as text, not the image.
       const shot = aiSees ? await snapshot() : null;
+      let note = 'Done. Edit the layers on the artboard, or describe a change.';
       if (shot) {
-        $('aiNote').textContent = 'Looking at the result and refining it…';
-        const check = `${AI_GUIDE}\n\nThe designer asked for: ${want}\n\nYou produced this scene:\n${JSON.stringify(first)}\n\nThe attached image is how Comput drew it: black marks pile up in shadow and along edges, lit areas stay sparse. Look at it critically, as the designer would. Does it read instantly as what was asked for? Check the proportions, missing or misplaced parts, parts that float or sink into each other, the camera angle, and the framing (too small, cut off, off-centre). Then reply with the complete corrected scene in the same JSON format. If it is already right, return it unchanged.`;
-        const second = await sampleFn.json(check, { signal: aiCtl.signal, modelTier: aiTier, images: [shot] });
-        applyAiScene(second);
+        $('aiNote').textContent = 'Checking the result…';
+        const parts = (first.shapes || []).map((x) => x && x.name).filter(Boolean).join(', ');
+        const check = `You are reviewing a 3D illustration made in Comput. Comput draws forms as small marks: dense marks are shadow and edges, sparse marks are lit areas, so judge shape, proportion and composition, not colour or texture.\nThe designer asked for: ${want}\nThe scene is built from these named parts: ${parts || 'unnamed parts'}.\nLook at the attached render. Would the designer recognise it instantly as what they asked for? List only real, visible problems: wrong proportions, a missing part that the subject needs to be recognised, a part in the wrong place, parts floating apart or sunk into each other, a camera angle that hides the key features, or framing (too small, cut off, off-centre). Name the part and say exactly what to change. Reply with only JSON: {"ok": true} when it already reads well, otherwise {"ok": false, "issues": ["...", "..."]} with at most 5 issues.`;
+        const verdict = await sampleFn.json(check, { signal: aiCtl.signal, modelTier: aiCheckTier, images: [shot] });
+        const issues = verdict && verdict.ok === false && Array.isArray(verdict.issues) ? verdict.issues.map(String).filter(Boolean).slice(0, 5) : [];
+        if (issues.length) {
+          $('aiNote').textContent = `Fixing ${issues.length} thing${issues.length > 1 ? 's' : ''}…`;
+          const fix = `${AI_GUIDE}\n\nThe designer asked for: ${want}\n\nYou produced this scene:\n${JSON.stringify(first)}\n\nA reviewer looked at the render and found these problems:\n- ${issues.join('\n- ')}\n\nFix them and reply with the complete corrected scene in the same JSON format, keeping everything that was already right.`;
+          applyAiScene(await sampleFn.json(fix, { signal: aiCtl.signal, modelTier: aiTier }));
+          note = `Done. Fixed: ${issues.join(' · ')}`;
+        } else note = 'Done. The check found nothing to fix. Edit the layers on the artboard, or describe a change.';
       }
-      $('aiNote').textContent = 'Done. Edit the parts on the artboard, or describe a change.';
+      $('aiNote').textContent = note;
     } catch (e) {
       const c = e && e.code;
       if (c === 'not_granted' || c === 'sampling_disabled' || c === 'capability_disabled' || c === 'not_declared') { $('aiBox').hidden = true; $('aiNote').textContent = 'Claude is not available for this artifact.'; }
@@ -2965,9 +3036,9 @@ Name every part.`;
         for (let f = 0; f < count; f++) {
           const t = f / count, pf = { ...p };
           if (type === 'light') { pf[lx] = rr * Math.cos(a0 + 2 * Math.PI * t); pf[ly] = rr * Math.sin(a0 + 2 * Math.PI * t); }
-          if (type === 'turn') pf.scene = { ...SC(), yaw: (SC().yaw || 0) + 360 * t };
+          if (type === 'turn') pf.scene = { ...VIS(), yaw: (SC().yaw || 0) + 360 * t };
           let srcs;
-          if (p.source === 'scene') { const a = Comput.aspectOf(pf.scene.aspect), w = a >= 1 ? 420 : Math.round(420 * a); srcs = { src: { kind: 'scene', scene: pf.scene, w, h: Math.round(w / a) } }; }
+          if (p.source === 'scene') { const a = Comput.aspectOf(pf.scene.aspect), w = a >= 1 ? 420 : Math.round(420 * a); srcs = { src: { kind: 'scene', scene: VIS(pf.scene), w, h: Math.round(w / a) } }; }
           else srcs = source();
           const r = await ENG.gen({ p: pf, size: p.size, ...srcs, keep: true, opt: { init: prev, fixedN: N, iters: prev ? 3 : undefined, stable: true } });
           if (gone()) return;
