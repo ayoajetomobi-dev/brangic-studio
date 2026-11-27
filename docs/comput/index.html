@@ -109,6 +109,16 @@ input[type=range]:focus-visible { outline: 1px dashed var(--ink); outline-offset
 .lbtns { display: flex; gap: 6px; flex-wrap: wrap }
 .lbtns .btn { flex: 1 }
 .view.scene canvas { cursor: grab; touch-action: none } .view.scene.grabbing canvas { cursor: grabbing }
+.dock { display: flex; align-items: center; justify-content: center; gap: 8px 12px; padding: 10px 14px; border-top: 1px solid var(--rule); flex-wrap: wrap }
+.tgrp { display: flex; border: 1px solid var(--ink); border-radius: 999px; padding: 2px; gap: 2px }
+.tb { width: 32px; height: 32px; border-radius: 50%; border: 0; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer; padding: 0; flex: none }
+.tb svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round }
+.tb:hover { background: var(--rule) }
+.tb[aria-pressed=true] { background: var(--ink); color: var(--panel) }
+.tb:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px }
+.btn[disabled] { opacity: .35; cursor: default }
+.view .empty { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; padding: 24px; text-align: center; color: var(--mute); font-size: 12px; letter-spacing: .04em }
+.view .empty[hidden] { display: none }
 .dropping .view { outline: 2px dashed var(--ink); outline-offset: -10px }
 .light { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 16px; align-items: center }
 .pad { width: 112px; height: 112px; touch-action: none; cursor: crosshair; display: block; border-radius: 50% }
@@ -229,8 +239,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
         <div class="mod-h"><span class="lab">Scene</span><span class="lab mute">Drag shapes to move them</span></div>
         <div class="row"><label>Start from</label><span></span></div>
         <div class="chips" id="presetChips"></div>
-        <div class="group-t">Add a shape</div>
-        <div class="chips" id="addChips"></div>
+        <p class="sub" style="margin:0">Add shapes, draw your own or clear the canvas with the tools under the artboard.</p>
         <div class="group-t">Layers</div>
         <div class="layers" id="shapeChips" role="listbox" aria-label="Layers"></div>
         <p class="sub" id="shapeHint" style="margin:0"></p>
@@ -267,6 +276,7 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
           <div class="imgbtns">
             <button class="btn ghost sm" id="pick">Choose image</button>
             <button class="btn ghost sm" id="useSample">Use sample</button>
+            <button class="btn ghost sm" id="clearImg">Clear</button>
           </div>
           <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden>
         </div>
@@ -375,7 +385,6 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
       </div>
       <div class="rsp-ctl" id="sceneBar" hidden>
         <div class="seg" id="sceneViewSeg" role="group" aria-label="View" style="min-width:150px"><button data-v="wire" aria-pressed="false" title="Outlines only, fastest for moving around and drawing (W)">Wire</button><button data-v="render" aria-pressed="true" title="The 0s and 1s as they will export (W)">Rendered</button></div>
-        <div class="seg" id="toolSeg" role="group" aria-label="Tool"><button data-v="move" aria-pressed="true" title="Move (G)">Move</button><button data-v="rotate" aria-pressed="false" title="Rotate (R)">Rotate</button><button data-v="scale" aria-pressed="false" title="Scale (S)">Scale</button></div>
         <div class="seg" id="axisSeg" role="group" aria-label="Axis" style="min-width:150px"><button data-v="free" aria-pressed="true" title="Free (Esc)">Free</button><button data-v="x" aria-pressed="false" title="X axis (X)">X</button><button data-v="y" aria-pressed="false" title="Y axis (Y)">Y</button><button data-v="z" aria-pressed="false" title="Z axis (Z)">Z</button></div>
         <button class="btn ghost sm" id="resetView" title="Reset view (F)">Reset view</button>
         <span class="kbd" id="navHint">Click a shape to edit it, or empty space to deselect. Drag empty space to pan. Right-drag or Option-drag to orbit. Scroll or pinch to zoom.</span>
@@ -383,6 +392,17 @@ textarea.ask:focus-visible { outline: 1px dashed var(--ink); outline-offset: 2px
       <div class="bar"><i id="bar"></i></div>
       <div class="view" id="view">
         <div class="board" id="board"><span class="tag lab" id="boardTag"></span><canvas id="cv"></canvas><canvas id="gl"></canvas><svg id="ov" aria-hidden="true"></svg><img id="rspImg" alt="Responsive preview" hidden></div>
+      <div class="empty" id="emptyMsg" hidden></div>
+      </div>
+      <div class="dock" id="sceneDock" role="toolbar" aria-label="Scene tools" hidden>
+        <div class="tgrp" id="toolSeg" role="group" aria-label="Tool"><button class="tb" data-v="move" aria-pressed="true" title="Move (G)" aria-label="Move (G)"><svg viewBox="0 0 16 16"><path d="M8 1.5v13M1.5 8h13M6 3.5l2-2 2 2M6 12.5l2 2 2-2M3.5 6l-2 2 2 2M12.5 6l2 2-2 2"/></svg></button><button class="tb" data-v="rotate" aria-pressed="false" title="Rotate (R)" aria-label="Rotate (R)"><svg viewBox="0 0 16 16"><path d="M13.5 8A5.5 5.5 0 1 1 11.4 3.7"/><path d="M11.8 1.2v2.9H8.9"/></svg></button><button class="tb" data-v="scale" aria-pressed="false" title="Scale (S)" aria-label="Scale (S)"><svg viewBox="0 0 16 16"><rect x="2" y="7.5" width="6.5" height="6.5"/><path d="M8 8l6-6M10 2h4v4"/></svg></button></div>
+        <div class="tgrp" id="addChips" role="group" aria-label="Add a shape"></div>
+        <button class="btn ghost sm" id="clearScene" title="Remove every layer. Undo brings them back.">Clear</button>
+      </div>
+      <div class="dock" id="imgDock" role="toolbar" aria-label="Picture" hidden>
+        <button class="btn ghost sm" id="pick2">Choose image</button>
+        <button class="btn ghost sm" id="sample2">Use sample</button>
+        <button class="btn ghost sm" id="clearImg2" title="Remove the picture. Undo brings it back.">Clear</button>
       </div>
       <div class="stage-foot">
         <div class="reads" id="reads"></div>
@@ -2146,8 +2166,8 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     HIST.t = setTimeout(function commit() {
       if (held > 0 || gest) { HIST.t = setTimeout(commit, 200); return; }
       const snap = JSON.stringify(p), top = HIST.stack[HIST.idx];
-      if (top && top.p === snap) { top.sel = ui.sel; return; }      // only selection changed: not a step
-      HIST.stack = HIST.stack.slice(0, HIST.idx + 1); HIST.stack.push({ p: snap, sel: ui.sel });
+      if (top && top.p === snap && top.img === IMG) { top.sel = ui.sel; return; }      // only selection changed: not a step
+      HIST.stack = HIST.stack.slice(0, HIST.idx + 1); HIST.stack.push({ p: snap, sel: ui.sel, img: IMG });
       if (HIST.stack.length > 150) HIST.stack.shift();
       HIST.idx = HIST.stack.length - 1; syncHistory();
     }, 350);
@@ -2160,6 +2180,7 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     const keepSize = p.size;
     p = { ...D, ...JSON.parse(s0.p) }; ui.sel = Math.max(-1, Math.min(s0.sel ?? -1, (p.scene?.shapes?.length || 0) - 1));
     if (p.background !== 'none') lastBg = p.background;
+    if ('img' in s0 && s0.img !== IMG) { IMG = s0.img; showImg(IMG); keepImg(IMG); }
     syncHistory(); changed(p.size !== keepSize ? 'size' : 'all');
     toast(step < 0 ? 'Undone' : 'Redone');
   }
@@ -2304,11 +2325,33 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     ctx.putImageData(id, 0, 0); im.url = cv.toDataURL('image/png');
     return im;
   }
-  function setImage(im, persist) {
-    IMG = im; $('thumb').src = im.url; $('imgName').textContent = im.name.length > 22 ? im.name.slice(0, 20) + '…' : im.name;
-    try { if (persist && im.url.length < 2.5e6) localStorage.setItem(IMG_KEY, JSON.stringify({ name: im.name, url: im.url })); else if (!persist) localStorage.removeItem(IMG_KEY); } catch (e) {}
+  function showImg(im) {
+    const t = $('thumb'); t.hidden = !im;
+    if (im) t.src = im.url; else t.removeAttribute('src');
+    $('imgName').textContent = !im ? 'None' : im.name.length > 22 ? im.name.slice(0, 20) + '…' : im.name;
+    $('clearImg').disabled = $('clearImg2').disabled = !im;
+  }
+  // what reloading the page brings back: the picture, the sample, or nothing
+  function keepImg(im) {
+    try {
+      if (!im) localStorage.setItem(IMG_KEY, 'none');
+      else if (/^sample/.test(im.id)) localStorage.removeItem(IMG_KEY);
+      else if (im.url.length < 2.5e6) localStorage.setItem(IMG_KEY, JSON.stringify({ name: im.name, url: im.url }));
+    } catch (e) {}
+  }
+  function setImage(im) {
+    IMG = im; showImg(im); keepImg(im);
     if (p.source === 'image') changed('image');
   }
+  function clearImage() {
+    if (!IMG) return;
+    IMG = null; showImg(null); keepImg(null); changed('image'); save();
+    toast('Picture cleared. Undo brings it back.');
+  }
+  $('clearImg').addEventListener('click', clearImage);
+  $('clearImg2').addEventListener('click', clearImage);
+  $('pick2').addEventListener('click', () => $('file').click());
+  $('sample2').addEventListener('click', () => $('useSample').click());
   async function loadFile(file) {
     if (!file || !/^image\//.test(file.type)) return toast('Choose a PNG, JPG, WebP or SVG image');
     const url = URL.createObjectURL(file);
@@ -2316,7 +2359,7 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
       const el = new Image(); el.src = url; await el.decode();
       // a new picture no longer matches the old normal map
       if (NMAP) { setNormals(null, false); if (p.normalSource === 'file') { p.normalSource = 'none'; if (['burst', 'follow', 'rings'].includes(p.imgDirection)) p.imgDirection = 'flow'; } }
-      setImage(rasterize(el, file.name), true);
+      setImage(rasterize(el, file.name));
       if (p.source !== 'image') { p.source = 'image'; changed('source'); }
       toast(`Loaded ${file.name}`);
     } catch (e) { toast('Could not read that image. Try a PNG, JPG or WebP.'); }
@@ -2324,7 +2367,9 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
   }
   async function restoreImage() {
     try {
-      const s = JSON.parse(localStorage.getItem(IMG_KEY) || 'null');
+      const raw = localStorage.getItem(IMG_KEY);
+      if (raw === 'none') return 'none';
+      const s = JSON.parse(raw || 'null');
       if (s && s.url) { const el = new Image(); el.src = s.url; await el.decode(); const im = rasterize(el, s.name); im.id = 'saved:' + s.name; return im; }
     } catch (e) {}
     return null;
@@ -2332,7 +2377,7 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
   $('pick').addEventListener('click', () => $('file').click());
   $('file').addEventListener('change', () => { loadFile($('file').files[0]); $('file').value = ''; });
   $('useSample').addEventListener('click', () => {
-    const im = sampleImg(); setNormals(sampleNormals(im), false); setImage(im, false); toast('Using the sample');
+    const im = sampleImg(); setNormals(sampleNormals(im), false); setImage(im); toast('Using the sample');
   });
   function sampleNormals(im) { const nm = im.normals; nm.url = normalsUrl(nm); return nm; }
   $('invert').addEventListener('change', () => {
@@ -2448,12 +2493,22 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
   ], SC, (k, live) => changed('scene', live));
   $('presetChips').innerHTML = Object.entries(Comput.SCENES).map(([k, v]) => `<button class="chip" data-k="${k}">${v.label}</button>`).join('');
   $('presetChips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; p.scene = clone(Comput.SCENES[b.dataset.k].scene); ui.sel = 0; changed('scene'); });
-  $('addChips').innerHTML = Object.entries(Comput.SHAPES).filter(([k]) => k !== 'custom').map(([k, v]) => `<button class="chip" data-k="${k}">+ ${v.label}</button>`).join('') +
-    '<button class="chip" data-k="draw" title="Click points on the artboard to draw your own shape">+ Draw</button>';
+  const SHAPE_ICON = {
+    sphere: '<circle cx="8" cy="8" r="6"/><ellipse cx="8" cy="8" rx="6" ry="2.2"/>',
+    cube: '<path d="M8 1.8 13.5 5v6L8 14.2 2.5 11V5z"/><path d="M2.5 5 8 8.2 13.5 5M8 8.2v6"/>',
+    cylinder: '<ellipse cx="8" cy="3.8" rx="5" ry="1.8"/><path d="M3 3.8v8.4c0 1 2.2 1.8 5 1.8s5-.8 5-1.8V3.8"/>',
+    ring: '<ellipse cx="8" cy="8" rx="6.3" ry="4.2"/><ellipse cx="8" cy="8" rx="2.6" ry="1.4"/>',
+    capsule: '<rect x="5" y="1.5" width="6" height="13" rx="3"/>',
+    draw: '<path d="M8 1.5l4.5 6.5-2 5.5h-5l-2-5.5z"/><path d="M8 1.5v5.8"/><circle cx="8" cy="8.4" r="1.1"/>',
+  };
+  const tbtn = (k, t, extra) => `<button class="tb" data-k="${k}" title="${t}" aria-label="${t}"${extra || ''}><svg viewBox="0 0 16 16">${SHAPE_ICON[k]}</svg></button>`;
+  $('addChips').innerHTML = Object.entries(Comput.SHAPES).filter(([k]) => k !== 'custom').map(([k, v]) => tbtn(k, 'Add a ' + v.label.toLowerCase())).join('') +
+    tbtn('draw', 'Pen: draw your own shape', ' aria-pressed="false"');
   $('addChips').addEventListener('click', (e) => {
-    if (e.target.closest('[data-k="draw"]')) { startDraw(); return; }
+    if (e.target.closest('[data-k="draw"]')) { if (!DRAW) startDraw(); else if (DRAW.pts.length >= 3) finishDraw(); else { cancelDraw(); toast('Drawing cancelled'); } return; }
     const b = e.target.closest('button'); if (!b) return;
     if (SC().shapes.length >= 24) return toast('A scene can hold up to 24 shapes');
+    if (DRAW) cancelDraw();
     SC().shapes.push({ type: b.dataset.k, x: 0, y: 0, z: 0, size: 0.35, q: 0.5, rx: 0, ry: 0, rz: 0 });
     ui.sel = SC().shapes.length - 1; changed('scene');
   });
@@ -2482,6 +2537,11 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
   });
   $('cutShape').addEventListener('change', () => { if (!SEL()) return; SEL().cut = $('cutShape').checked; changed('scene'); });
   $('dupShape').addEventListener('click', () => { const s0 = SEL(); if (!s0 || SC().shapes.length >= 24) return; const c = clone(s0); c.x += 0.15; c.y += 0.1; SC().shapes.push(c); ui.sel = SC().shapes.length - 1; changed('scene'); });
+  $('clearScene').addEventListener('click', () => {
+    if (DRAW) cancelDraw();
+    if (!SC().shapes.length) return;
+    SC().shapes = []; ui.sel = -1; changed('scene'); toast('Canvas cleared. Undo brings it back.');
+  });
   $('delShape').addEventListener('click', () => { if (!SEL()) return; SC().shapes.splice(ui.sel, 1); ui.sel = Math.max(0, ui.sel - 1); changed('scene'); });
   const FRAMES = ['1:1', '4:5', '3:2', '16:9'];
   $('frameChips').innerHTML = FRAMES.map((f) => `<button class="chip" data-f="${f}">${f}</button>`).join('');
@@ -2519,7 +2579,7 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
   }
   function syncScene() {
     const sc = SC();
-    drawLayers();
+    drawLayers(); $('clearScene').disabled = !sc.shapes.length;
     const has = !!SEL();
     $('shapeRows').hidden = !has; $('shapeBtns').hidden = !sc.shapes.length;
     $('dupShape').disabled = $('delShape').disabled = !has;
@@ -2607,6 +2667,7 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     const wire = ui.sceneView === 'wire';
     try { gpu.render({ C: Comput, scene: VIS(), p, W, H, pw: f.pw, ph: f.ph, cw: f.cw, mode: wire ? 'wire' : 'render' }); } catch (e) { console.warn(e); gpu = null; return; }
     gl.classList.add('on'); cv.style.visibility = 'hidden';
+    if (VIS().shapes.length) $('emptyMsg').hidden = true;
     $('boardTag').textContent = `${W} × ${H} PX · VIEW ${Math.round(f.vs * 100)}% · ${wire ? 'WIRE' : 'LIVE'}`;
     drawGizmo();
   }
@@ -2652,6 +2713,7 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
   function setDrawHint() {
     $('navHint').textContent = DRAW ? 'Drawing: click to add points. Click the first point or press Enter to finish. Backspace removes the last point, Esc cancels.' : NAV_HINT;
     view.classList.toggle('drawing', !!DRAW);
+    const pen = $('addChips').querySelector('[data-k="draw"]'); if (pen) pen.setAttribute('aria-pressed', !!DRAW);
   }
   function startDraw() {
     if (SC().shapes.length >= 24) return toast('A scene can hold up to 24 layers');
@@ -2930,7 +2992,7 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     $('nFileRow').hidden = !(img && p.normalSource === 'file');
     $('lightSrcLab').hidden = $('lightSeg').hidden = !(img && form);
     if (scn) syncScene();
-    $('sceneBar').hidden = !(scn && ui.mode === 'single');
+    syncDocks();
     if (!gpuLive()) { showExact(); if (typeof ov !== 'undefined') ov.innerHTML = ''; }
     $('nHint').textContent = { none: 'Add a 3D form so pills follow the surface and Comput can light it like The Orb.',
       inflate: 'Rounds out the outline, as if the shape were inflated. Works best with a cut-out PNG. No 3D software needed.',
@@ -2966,6 +3028,22 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     $('bar').style.width = on ? `${Math.round((frac || 0) * 100)}%` : '0%';
   }
 
+  const isEmpty = () => (p.source === 'scene' && !VIS().shapes.length) || (p.source === 'image' && !IMG);
+  function syncEmpty() { $('export').disabled = $('exportRsp').disabled = isEmpty(); }
+  function emptyBoard() {
+    single = null; rspResults = [];
+    const scn = p.source === 'scene', { W, H } = scn ? outSize() : { W: p.size, H: p.size };
+    const cv = $('cv'), f = fitBoard(W, H);
+    cv.width = f.pw; cv.height = f.ph; cv.style.width = f.cw + 'px'; cv.style.height = f.ch + 'px';
+    const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, f.pw, f.ph);
+    if (p.background !== 'none') { ctx.fillStyle = p.background; ctx.fillRect(0, 0, f.pw, f.ph); }
+    if (!gpuLive()) cv.style.visibility = '';
+    if (ui.mode === 'responsive') { $('rspImg').removeAttribute('src'); $('cv').hidden = false; }
+    $('boardTag').textContent = `${W} × ${H} PX`;
+    const msg = scn ? 'Empty canvas. Add a shape or draw one with the tools below.' : 'No picture. Choose one below, or drop or paste it here.';
+    $('emptyMsg').textContent = msg; $('emptyMsg').hidden = false;
+    reads(); syncEmpty(); busy(false, scn ? 'Empty canvas' : 'No picture');
+  }
   async function run(draft) {
     const my = ++job, cancelled = () => my !== job, ver = sceneVer;
     ENG.cancelBelow(my);
@@ -2974,10 +3052,8 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
       const still = ui.mode !== 'responsive';
       const sizes = still ? [p.size] : ui.lods.slice().sort((a, b) => a - b), out = [];
       const t0 = performance.now();
-      if (p.source === 'scene' && !VIS().shapes.length) {
-        single = null; rspResults = []; const cv = $('cv'); cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
-        reads(); busy(false, 'Add a shape to start'); return;
-      }
+      if (isEmpty()) { emptyBoard(); return; }
+      $('emptyMsg').hidden = true; syncEmpty();
       const live = gpuLive() && !draft;
       if (live && ui.sceneView === 'wire') { requestGPU(); busy(false, 'Wire view'); return; }   // no exact render while in Wire
       if (live) requestGPU();
@@ -3096,11 +3172,18 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     }
   }
 
+  function syncDocks() {
+    const one = ui.mode === 'single';
+    $('sceneBar').hidden = $('sceneDock').hidden = !(p.source === 'scene' && one);
+    $('imgDock').hidden = !(p.source === 'image' && one);
+    $('clearScene').disabled = !SC().shapes.length;
+    if (p.source === 'sphere') $('emptyMsg').hidden = true;
+  }
   function applyMode() {
     const r = ui.mode === 'responsive', m = ui.mode === 'motion';
     $('rspCtl').hidden = !r; $('actRsp').hidden = !r; $('actSingle').hidden = r || m;
     $('motCtl').hidden = $('actMot').hidden = !m;
-    $('sceneBar').hidden = !(p.source === 'scene' && ui.mode === 'single');
+    syncDocks();
     if (!gpuLive()) showExact();
     $('cv').hidden = r; $('rspImg').hidden = !r; $('viewSeg').hidden = r;
     if (!m) stopMotion(true); else syncMotion();
@@ -3387,6 +3470,7 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
     return { r, vis };
   }
   async function renderMotion() {
+    if (isEmpty()) return toast(p.source === 'scene' ? 'Add a shape first' : 'Choose a picture first');
     const my = ++MOT.job, gone = () => my !== MOT.job;
     stopMotion(false); MOT.job = my; MOT.frames = null; syncMotion();
     const type = ui.mot.type, fps = ui.mot.fps, count = Math.max(2, Math.round(ui.mot.seconds * fps));
@@ -3505,14 +3589,13 @@ if (typeof module !== 'undefined') module.exports = ComputPrompts;
   let rz = 0;
   window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { layout(); if (gpuLive() && $('gl').classList.contains('on')) requestGPU(); }, 120); });
   (async () => {
-    const saved = await restoreImage(), im = saved || sampleImg();
-    setImageQuiet(im);
+    const saved = await restoreImage(), im = saved === 'none' ? null : saved || sampleImg();
+    IMG = im; showImg(im);
     setNormals(saved ? await restoreNormals() : sampleNormals(im), !!saved);
     if (p.normalSource === 'file' && !NMAP) p.normalSource = 'none';
     drawLooks(); syncAll(); applyMode();
-    HIST.stack = [{ p: JSON.stringify(p), sel: ui.sel }]; HIST.idx = 0; HIST.ready = true; syncHistory();
+    HIST.stack = [{ p: JSON.stringify(p), sel: ui.sel, img: IMG }]; HIST.idx = 0; HIST.ready = true; syncHistory();
   })();
-  function setImageQuiet(im) { IMG = im; $('thumb').src = im.url; $('imgName').textContent = im.name.length > 22 ? im.name.slice(0, 20) + '…' : im.name; }
 })();
 </script>
 </body></html>
